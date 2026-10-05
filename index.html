@@ -25,6 +25,10 @@
     font-size: 14px;
   }
   #map { position: fixed; inset: 0; z-index: 1; background: #0a0a12; }
+  /* Карта двигается ТОЛЬКО ПКМ. ЛКМ никогда не тащит */
+  #map .leaflet-grab,
+  #map .leaflet-dragging .leaflet-grab,
+  #map .leaflet-dragging .leaflet-dragging { cursor: default !important; }
   #map.drawing .leaflet-grab { cursor: crosshair !important; }
 
   .panel {
@@ -79,15 +83,13 @@
   .side-dot {
     width: 18px; height: 18px; border-radius: 50%;
     flex-shrink: 0; box-shadow: 0 0 10px currentColor;
-    cursor: pointer;
-    position: relative;
+    cursor: pointer; position: relative;
     border: 2px solid rgba(255,255,255,0.15);
   }
   .side-dot input[type="color"] {
     position: absolute; inset: -4px;
     width: calc(100% + 8px); height: calc(100% + 8px);
-    border: none; padding: 0; cursor: pointer;
-    opacity: 0;
+    border: none; padding: 0; cursor: pointer; opacity: 0;
   }
   .side-name { flex: 1; font-weight: 600; font-size: 13px; cursor: pointer; }
   .side-count {
@@ -177,16 +179,13 @@
     width: 22px; height: 22px;
     border-radius: 50%;
     border: 2px solid rgba(255,255,255,0.2);
-    cursor: pointer;
-    position: relative;
-    overflow: hidden;
+    cursor: pointer; position: relative; overflow: hidden;
     flex-shrink: 0;
   }
   .btn .btn-extra input[type="color"] {
     position: absolute; inset: -10px;
     width: 50px; height: 50px;
-    border: none; padding: 0; cursor: pointer;
-    opacity: 0;
+    border: none; padding: 0; cursor: pointer; opacity: 0;
   }
   .btn.danger { color: #ff6b6b; }
   .btn.danger:hover { background: rgba(255,80,80,0.1); border-color: rgba(255,80,80,0.3); }
@@ -260,6 +259,7 @@
   }
   .year-btn:hover { color: var(--text); background: rgba(255,255,255,0.05); }
 
+  /* ПЕРЕКЛЮЧАТЕЛЬ КАРТЫ — 4 РЕЖИМА */
   .map-switch {
     position: fixed; top: 16px; right: 16px;
     display: flex; gap: 4px;
@@ -269,10 +269,11 @@
     z-index: 1000;
   }
   .map-switch button {
-    padding: 8px 14px; background: transparent;
+    padding: 8px 12px; background: transparent;
     border: none; color: var(--text-dim);
-    border-radius: 8px; font: inherit; font-size: 12px;
+    border-radius: 8px; font: inherit; font-size: 11px;
     cursor: pointer; transition: all 0.2s;
+    white-space: nowrap;
   }
   .map-switch button:hover { color: var(--text); background: rgba(255,255,255,0.05); }
   .map-switch button.active { background: var(--accent); color: #fff; }
@@ -316,18 +317,8 @@
     margin-top: 6px;
   }
 
-  .country-tip {
-    background: rgba(15,15,25,0.95) !important;
-    border: 1px solid rgba(139,108,255,0.4) !important;
-    color: #e8e8f0 !important;
-    font-size: 12px !important;
-    padding: 4px 10px !important;
-    border-radius: 6px !important;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.5) !important;
-    font-family: inherit !important;
-  }
-  .country-tip::before { display: none !important; }
   .attack-arrow { pointer-events: none; }
+  .hub-marker { pointer-events: none; }
 
   @media (max-width: 720px) {
     .panel { width: calc(100vw - 32px); max-width: 340px; }
@@ -337,8 +328,8 @@
       padding: 8px 12px; gap: 8px;
     }
     .year-display { font-size: 17px; min-width: 50px; }
-    .map-switch { top: 12px; right: 12px; padding: 3px; }
-    .map-switch button { padding: 6px 10px; font-size: 11px; }
+    .map-switch { top: 12px; right: 12px; padding: 3px; flex-wrap: wrap; max-width: 60vw; }
+    .map-switch button { padding: 5px 8px; font-size: 10px; }
   }
 </style>
 </head>
@@ -496,8 +487,9 @@
 
 <div class="map-switch">
   <button class="active" data-map="satellite">Спутник</button>
+  <button data-map="hybrid">Спутник+дороги</button>
+  <button data-map="osm">OSM карта</button>
   <button data-map="dark">Тёмная</button>
-  <button data-map="light">Светлая</button>
 </div>
 
 <div class="year-panel">
@@ -510,9 +502,10 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
   // ============================================================
-  // ЧАСТЬ 2 — карта, страны, города, ПКМ-драг
+  // ЧАСТЬ 2 — карта, режимы, страны, города, дороги, ПКМ-драг
   // ============================================================
 
+  // ---------- КАРТА (ЛКМ никогда не тащит) ----------
   const map = L.map('map', {
     center: [30, 30],
     zoom: 3,
@@ -520,14 +513,17 @@
     maxZoom: 18,
     worldCopyJump: true,
     zoomControl: false,
-    dragging: true,
+    dragging: false,    // полностью отключаем встроенный драг
     tap: false,
-    contextmenu: false
+    contextmenu: false,
+    boxZoom: false,
+    keyboard: false
   });
 
   L.control.zoom({ position: 'bottomright' }).addTo(map);
   map.getContainer().addEventListener('contextmenu', e => e.preventDefault());
 
+  // ---------- ДВИЖЕНИЕ ТОЛЬКО ПКМ ----------
   (function rightClickPan() {
     const container = map.getContainer();
     let isPanning = false;
@@ -562,33 +558,42 @@
     });
   })();
 
+  // ---------- ТАЙЛЫ КАРТЫ (4 РЕЖИМА) ----------
   const layers = {
     satellite: L.tileLayer(
       'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
       { maxZoom: 18, attribution: '&copy; Esri' }
     ),
+    hybrid: L.tileLayer(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      { maxZoom: 18, attribution: '&copy; Esri' }
+    ),
+    osm: L.tileLayer(
+      'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      { maxZoom: 19, attribution: '&copy; OpenStreetMap' }
+    ),
     dark: L.tileLayer(
       'https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png',
-      { maxZoom: 19, subdomains: 'abcd', attribution: '&copy; OSM, CARTO' }
-    ),
-    light: L.tileLayer(
-      'https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png',
       { maxZoom: 19, subdomains: 'abcd', attribution: '&copy; OSM, CARTO' }
     )
   };
 
-  const labelLayers = {
+  // Дополнительные слои поверх (дороги, подписи)
+  const overlayLayers = {
     satellite: null,
-    dark: L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png', {
-      maxZoom: 19, subdomains: 'abcd', pane: 'shadowPane', opacity: 0.85
-    }),
-    light: L.tileLayer('https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png', {
-      maxZoom: 19, subdomains: 'abcd', pane: 'shadowPane', opacity: 0.85
-    })
+    hybrid: L.tileLayer(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}',
+      { maxZoom: 18, opacity: 0.9, pane: 'overlayPane' }
+    ),
+    osm: null,
+    dark: L.tileLayer(
+      'https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png',
+      { maxZoom: 19, subdomains: 'abcd', pane: 'shadowPane', opacity: 0.85 }
+    )
   };
 
   let currentLayer = layers.satellite;
-  let currentLabels = null;
+  let currentOverlay = null;
   currentLayer.addTo(map);
 
   document.querySelectorAll('.map-switch button').forEach(btn => {
@@ -596,41 +601,45 @@
       const key = btn.dataset.map;
       document.querySelectorAll('.map-switch button').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
+
       map.removeLayer(currentLayer);
-      if (currentLabels) map.removeLayer(currentLabels);
+      if (currentOverlay) map.removeLayer(currentOverlay);
+
       currentLayer = layers[key];
       currentLayer.addTo(map);
-      if (labelLayers[key]) {
-        currentLabels = labelLayers[key];
-        currentLabels.addTo(map);
+
+      if (overlayLayers[key]) {
+        currentOverlay = overlayLayers[key];
+        currentOverlay.addTo(map);
       } else {
-        currentLabels = null;
+        currentOverlay = null;
       }
     });
   });
 
+  // ---------- СТРАНЫ (без подсветки при наведении) ----------
   const countriesLayer = L.geoJSON(null, {
     style: () => ({
-      color: 'rgba(160,140,255,0.7)',
-      weight: 1.2,
-      fillColor: 'rgba(139,108,255,0.05)',
-      fillOpacity: 0.4,
-      opacity: 0.85
+      color: 'rgba(160,140,255,0.5)',
+      weight: 1,
+      fillColor: 'rgba(139,108,255,0.04)',
+      fillOpacity: 0.3,
+      opacity: 0.7
     }),
     onEachFeature: (feature, layer) => {
       const p = feature.properties;
       const nameRu = p.NAME_RU || p.name_ru || p.NAME || 'Неизвестно';
       feature.properties.__nameRu = nameRu;
       layer.__baseStyle = {
-        color: 'rgba(160,140,255,0.7)',
-        weight: 1.2,
-        fillColor: 'rgba(139,108,255,0.05)',
-        fillOpacity: 0.4,
-        opacity: 0.85
+        color: 'rgba(160,140,255,0.5)',
+        weight: 1,
+        fillColor: 'rgba(139,108,255,0.04)',
+        fillOpacity: 0.3,
+        opacity: 0.7
       };
+      // Подсказка есть, но подсветки нет
       layer.bindTooltip(nameRu, {
-        sticky: true, direction: 'top', offset: [0, -5],
-        className: 'country-tip'
+        sticky: true, direction: 'top', offset: [0, -5]
       });
     }
   }).addTo(map);
@@ -647,42 +656,43 @@
     })
     .catch(err => console.error('Ошибка загрузки стран:', err));
 
+  // ---------- ГОРОДА-ХАБЫ (русские названия) ----------
   const bigCities = [
-    { name: 'Москва', coords: [55.7558, 37.6173], minZoom: 4 },
-    { name: 'Минск', coords: [53.9006, 27.5590], minZoom: 5 },
-    { name: 'Киев', coords: [50.4501, 30.5234], minZoom: 5 },
-    { name: 'Санкт-Петербург', coords: [59.9311, 30.3609], minZoom: 5 },
-    { name: 'Варшава', coords: [52.2297, 21.0122], minZoom: 5 },
-    { name: 'Берлин', coords: [52.5200, 13.4050], minZoom: 5 },
-    { name: 'Париж', coords: [48.8566, 2.3522], minZoom: 5 },
-    { name: 'Лондон', coords: [51.5074, -0.1278], minZoom: 5 },
-    { name: 'Рим', coords: [41.9028, 12.4964], minZoom: 5 },
-    { name: 'Мадрид', coords: [40.4168, -3.7038], minZoom: 5 },
-    { name: 'Прага', coords: [50.0755, 14.4378], minZoom: 5 },
-    { name: 'Вена', coords: [48.2082, 16.3738], minZoom: 5 },
-    { name: 'Будапешт', coords: [47.4979, 19.0402], minZoom: 5 },
-    { name: 'Бухарест', coords: [44.4268, 26.1025], minZoom: 5 },
-    { name: 'София', coords: [42.6977, 23.3219], minZoom: 5 },
-    { name: 'Афины', coords: [37.9838, 23.7275], minZoom: 5 },
-    { name: 'Анкара', coords: [39.9334, 32.8597], minZoom: 5 },
-    { name: 'Стамбул', coords: [41.0082, 28.9784], minZoom: 5 },
-    { name: 'Токио', coords: [35.6762, 139.6503], minZoom: 4 },
-    { name: 'Пекин', coords: [39.9042, 116.4074], minZoom: 4 },
-    { name: 'Шанхай', coords: [31.2304, 121.4737], minZoom: 5 },
-    { name: 'Сеул', coords: [37.5665, 126.9780], minZoom: 5 },
-    { name: 'Дели', coords: [28.6139, 77.2090], minZoom: 4 },
-    { name: 'Вашингтон', coords: [38.9072, -77.0369], minZoom: 4 },
-    { name: 'Нью-Йорк', coords: [40.7128, -74.0060], minZoom: 4 },
-    { name: 'Лос-Анджелес', coords: [34.0522, -118.2437], minZoom: 5 },
-    { name: 'Оттава', coords: [45.4215, -75.6972], minZoom: 5 },
-    { name: 'Мехико', coords: [19.4326, -99.1332], minZoom: 5 },
-    { name: 'Бразилиа', coords: [-15.8267, -47.9218], minZoom: 5 },
-    { name: 'Буэнос-Айрес', coords: [-34.6037, -58.3816], minZoom: 5 },
-    { name: 'Каир', coords: [30.0444, 31.2357], minZoom: 5 },
-    { name: 'Кейптаун', coords: [-33.9249, 18.4241], minZoom: 5 },
-    { name: 'Лагос', coords: [6.5244, 3.3792], minZoom: 5 },
-    { name: 'Сидней', coords: [-33.8688, 151.2093], minZoom: 4 },
-    { name: 'Канберра', coords: [-35.2809, 149.1300], minZoom: 5 }
+    { name: 'Москва', coords: [55.7558, 37.6173], minZoom: 4, size: 'big' },
+    { name: 'Минск', coords: [53.9006, 27.5590], minZoom: 5, size: 'big' },
+    { name: 'Киев', coords: [50.4501, 30.5234], minZoom: 5, size: 'big' },
+    { name: 'Санкт-Петербург', coords: [59.9311, 30.3609], minZoom: 5, size: 'big' },
+    { name: 'Варшава', coords: [52.2297, 21.0122], minZoom: 5, size: 'big' },
+    { name: 'Берлин', coords: [52.5200, 13.4050], minZoom: 5, size: 'big' },
+    { name: 'Париж', coords: [48.8566, 2.3522], minZoom: 5, size: 'big' },
+    { name: 'Лондон', coords: [51.5074, -0.1278], minZoom: 5, size: 'big' },
+    { name: 'Рим', coords: [41.9028, 12.4964], minZoom: 5, size: 'big' },
+    { name: 'Мадрид', coords: [40.4168, -3.7038], minZoom: 5, size: 'big' },
+    { name: 'Прага', coords: [50.0755, 14.4378], minZoom: 5, size: 'med' },
+    { name: 'Вена', coords: [48.2082, 16.3738], minZoom: 5, size: 'med' },
+    { name: 'Будапешт', coords: [47.4979, 19.0402], minZoom: 5, size: 'med' },
+    { name: 'Бухарест', coords: [44.4268, 26.1025], minZoom: 5, size: 'med' },
+    { name: 'София', coords: [42.6977, 23.3219], minZoom: 5, size: 'med' },
+    { name: 'Афины', coords: [37.9838, 23.7275], minZoom: 5, size: 'med' },
+    { name: 'Анкара', coords: [39.9334, 32.8597], minZoom: 5, size: 'med' },
+    { name: 'Стамбул', coords: [41.0082, 28.9784], minZoom: 5, size: 'big' },
+    { name: 'Токио', coords: [35.6762, 139.6503], minZoom: 4, size: 'big' },
+    { name: 'Пекин', coords: [39.9042, 116.4074], minZoom: 4, size: 'big' },
+    { name: 'Шанхай', coords: [31.2304, 121.4737], minZoom: 5, size: 'big' },
+    { name: 'Сеул', coords: [37.5665, 126.9780], minZoom: 5, size: 'med' },
+    { name: 'Дели', coords: [28.6139, 77.2090], minZoom: 4, size: 'big' },
+    { name: 'Вашингтон', coords: [38.9072, -77.0369], minZoom: 4, size: 'big' },
+    { name: 'Нью-Йорк', coords: [40.7128, -74.0060], minZoom: 4, size: 'big' },
+    { name: 'Лос-Анджелес', coords: [34.0522, -118.2437], minZoom: 5, size: 'big' },
+    { name: 'Оттава', coords: [45.4215, -75.6972], minZoom: 5, size: 'med' },
+    { name: 'Мехико', coords: [19.4326, -99.1332], minZoom: 5, size: 'big' },
+    { name: 'Бразилиа', coords: [-15.8267, -47.9218], minZoom: 5, size: 'med' },
+    { name: 'Буэнос-Айрес', coords: [-34.6037, -58.3816], minZoom: 5, size: 'med' },
+    { name: 'Каир', coords: [30.0444, 31.2357], minZoom: 5, size: 'big' },
+    { name: 'Кейптаун', coords: [-33.9249, 18.4241], minZoom: 5, size: 'med' },
+    { name: 'Лагос', coords: [6.5244, 3.3792], minZoom: 5, size: 'med' },
+    { name: 'Сидней', coords: [-33.8688, 151.2093], minZoom: 4, size: 'med' },
+    { name: 'Канберра', coords: [-35.2809, 149.1300], minZoom: 5, size: 'med' }
   ];
 
   const citiesLayer = L.layerGroup().addTo(map);
@@ -692,10 +702,18 @@
     const z = map.getZoom();
     bigCities.forEach(city => {
       if (z < city.minZoom) return;
+      const isBig = city.size === 'big';
+      const dotSize = isBig ? 10 : 7;
+      const fontSize = isBig ? 13 : 12;
       const icon = L.divIcon({
-        className: 'city-label',
-        html: '<div style="font-family:-apple-system,\'Segoe UI\',Roboto,sans-serif;font-size:13px;font-weight:600;color:#fff;text-shadow:0 0 3px #000,0 0 6px #000,0 1px 2px #000;white-space:nowrap;pointer-events:none;transform:translate(-50%,-50%);">' + city.name + '</div>',
-        iconSize: [0, 0], iconAnchor: [0, 0]
+        className: 'hub-marker',
+        html:
+          '<div style="position:relative;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;pointer-events:none;">' +
+            '<div style="width:' + dotSize + 'px;height:' + dotSize + 'px;border-radius:50%;background:#fff;border:2px solid #333;box-shadow:0 0 6px rgba(0,0,0,0.8),0 0 2px #fff;"></div>' +
+            '<div style="font-family:-apple-system,\'Segoe UI\',Roboto,sans-serif;font-size:' + fontSize + 'px;font-weight:600;color:#fff;text-shadow:0 0 3px #000,0 0 6px #000,0 1px 2px #000;white-space:nowrap;margin-top:2px;">' + city.name + '</div>' +
+          '</div>',
+        iconSize: [0, 0],
+        iconAnchor: [0, 0]
       });
       L.marker(city.coords, { icon, interactive: false }).addTo(citiesLayer);
     });
@@ -704,6 +722,7 @@
   map.on('zoomend', renderCities);
   renderCities();
 
+  // ---------- ПАНЕЛЬ ----------
   const panel = document.getElementById('panel');
   const panelOpen = document.getElementById('panelOpen');
   const panelClose = document.getElementById('panelClose');
@@ -717,6 +736,7 @@
     panelOpen.classList.remove('visible');
   });
 
+  // ---------- СЛАЙДЕР ГОДА ----------
   const yearSlider = document.getElementById('yearSlider');
   const yearDisplay = document.getElementById('yearDisplay');
   const yearPrev = document.getElementById('yearPrev');
@@ -762,7 +782,7 @@
   let attackColor = '#ffaa33';
   let attackThickness = 3;
 
-  const STORAGE_KEY = 'x3led-map-final';
+  const STORAGE_KEY = 'x3led-map-v6';
 
   function loadState() {
     try {
@@ -814,7 +834,7 @@
   const linesLayer = L.featureGroup().addTo(window.__map);
   const attacksLayer = L.featureGroup().addTo(window.__map);
 
-  // ---------- ЦВЕТА ----------
+  // ---------- ЭЛЕМЕНТЫ UI ----------
   const colorAInput = document.getElementById('colorA');
   const colorBInput = document.getElementById('colorB');
   const pencilColorInput = document.getElementById('pencilColor');
@@ -1015,6 +1035,7 @@
     });
   }
 
+  // ---------- РЕЖИМЫ ----------
   let currentMode = null;
 
   const btnAnnex = document.getElementById('btnAnnex');
@@ -1032,7 +1053,6 @@
 
     if (currentMode === mode) {
       currentMode = null;
-      window.__map.dragging.enable();
       return;
     }
 
@@ -1064,7 +1084,6 @@
     if (e.key === 'Escape') {
       setMode(null);
       currentMode = null;
-      window.__map.dragging.enable();
       mapContainer.classList.remove('drawing');
     }
   });
@@ -1122,10 +1141,6 @@
 
     y.regions.forEach((r, idx) => {
       const c = r.color || COLORS[r.side];
-      L.polygon([], {
-        color: c, weight: 3, fillColor: c, fillOpacity: 0.4
-      }).addTo(regionsLayer);
-
       const poly = L.geoJSON(r.geometry, {
         style: { color: c, weight: 3, fillColor: c, fillOpacity: 0.4 }
       }).addTo(regionsLayer);
@@ -1197,9 +1212,8 @@
   };
 
   document.getElementById('btnClear').addEventListener('click', () => {
-    if (!confirm('Удалить ВСЁ за ' + window.__currentYear() + ' год? Включая аннексии (страны будут убраны из сторон).')) return;
+    if (!confirm('Удалить ВСЁ за ' + window.__currentYear() + ' год? Включая аннексии.')) return;
     window.__yearsData[window.__currentYear()] = { regions: [], lines: [], attacks: [] };
-    // Очищаем страны из сторон
     sides.A.countries = [];
     sides.B.countries = [];
     updateSideUI();
@@ -1250,7 +1264,7 @@
 </script>
 <script>
   // ============================================================
-  // ЧАСТЬ 4 — лассо, карандаш, линия атаки, линия продвижения
+  // ЧАСТЬ 4 — рисование через pointerdown (ЛКМ точно работает)
   // ============================================================
 
   const map = window.__map;
@@ -1282,17 +1296,13 @@
     }
   }
 
-  // ---------- ОБЩИЙ ФИКС: ЛКМ на карте работает всегда, режим решает что делать ----------
-  // Используем нативные события контейнера вместо map.on('mousedown')
-  // Это чтобы dragging не поглощал событие
-
+  // ---------- РИСОВАНИЕ (pointer events) ----------
   let isDrawing = false;
   let drawType = null; // 'lasso' | 'pencil' | 'advance'
   let drawPoints = [];
   let tempLine = null;
 
   function latLngFromEvent(e) {
-    // e = native MouseEvent
     const rect = mapContainer.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
@@ -1300,35 +1310,44 @@
     return map.containerPointToLatLng(point);
   }
 
-  function beginDraw(type, e) {
+  function beginDraw(e) {
     if (e.button !== 0) return;
     const mode = window.__currentMode();
-    if (mode !== type) return;
+
+    let type = null;
+    if (mode === 'lasso') type = 'lasso';
+    else if (mode === 'pencil') type = 'pencil';
+    else if (mode === 'advance') type = 'advance';
+    else return;
+
+    e.preventDefault();
+    e.stopPropagation();
 
     isDrawing = true;
     drawType = type;
     drawPoints = [latLngFromEvent(e)];
 
-    let color, weight;
+    let color, weight, dashed = false;
     if (type === 'lasso') {
       color = window.__COLORS[window.__activeSide()];
       weight = 3;
-      tempLine = L.polyline(drawPoints, {
-        color: color, weight: weight, opacity: 1, dashArray: '6 4', lineCap: 'round'
-      }).addTo(map);
+      dashed = true;
     } else if (type === 'pencil') {
       color = window.__pencilColor();
       weight = window.__pencilThickness();
-      tempLine = L.polyline(drawPoints, {
-        color: color, weight: weight, opacity: 1, lineCap: 'round', lineJoin: 'round'
-      }).addTo(map);
     } else if (type === 'advance') {
       color = window.__COLORS[window.__activeSide()];
       weight = 5;
-      tempLine = L.polyline(drawPoints, {
-        color: color, weight: weight, opacity: 0.9, lineCap: 'round', lineJoin: 'round'
-      }).addTo(map);
     }
+
+    tempLine = L.polyline(drawPoints, {
+      color: color,
+      weight: weight,
+      opacity: 1,
+      dashArray: dashed ? '6 4' : null,
+      lineCap: 'round',
+      lineJoin: 'round'
+    }).addTo(map);
   }
 
   function moveDraw(e) {
@@ -1356,14 +1375,12 @@
     }
 
     if (drawType === 'lasso') {
-      // Замыкаем точно
       const closed = drawPoints.slice();
       closed.push(closed[0]);
 
       const side = window.__activeSide();
       const color = window.__COLORS[side];
 
-      // Геометрия полигона
       const geometry = {
         type: 'Polygon',
         coordinates: [closed.map(ll => [ll.lng, ll.lat])]
@@ -1392,7 +1409,6 @@
       const side = window.__activeSide();
       const color = window.__COLORS[side];
 
-      // Толстая полоса вокруг линии
       const leftSide = [];
       const rightSide = [];
       const thickness = 0.08;
@@ -1429,26 +1445,39 @@
     drawType = null;
   }
 
-  // Нативные слушатели на контейнер карты
-  mapContainer.addEventListener('mousedown', e => {
+  // ВАЖНО: pointerdown на document с проверкой цели
+  document.addEventListener('pointerdown', e => {
+    // Только ЛКМ
+    if (e.button !== 0) return;
+    // Только если клик по карте (не по панели)
+    if (!mapContainer.contains(e.target)) return;
+    // Если режим рисования активен
     const mode = window.__currentMode();
-    if (mode === 'lasso') beginDraw('lasso', e);
-    else if (mode === 'pencil') beginDraw('pencil', e);
-    else if (mode === 'advance') beginDraw('advance', e);
+    if (mode === 'lasso' || mode === 'pencil' || mode === 'advance') {
+      beginDraw(e);
+    }
   });
 
-  document.addEventListener('mousemove', moveDraw);
-  document.addEventListener('mouseup', endDraw);
+  document.addEventListener('pointermove', moveDraw);
+  document.addEventListener('pointerup', endDraw);
+  document.addEventListener('pointercancel', endDraw);
 
   // ---------- ЛИНИЯ АТАКИ (2 клика) ----------
   let attackStart = null;
   let attackTempLine = null;
 
-  map.on('click', e => {
+  document.addEventListener('click', e => {
     if (window.__currentMode() !== 'attack') return;
+    if (!mapContainer.contains(e.target)) return;
+    if (e.button !== 0) return;
+
+    const rect = mapContainer.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const ll = map.containerPointToLatLng(L.point(x, y));
 
     if (!attackStart) {
-      attackStart = e.latlng;
+      attackStart = ll;
       attackTempLine = L.polyline([attackStart, attackStart], {
         color: window.__attackColor(),
         weight: window.__attackThickness(),
@@ -1456,15 +1485,15 @@
         opacity: 0.9
       }).addTo(map);
     } else {
-      const end = e.latlng;
+      const end = ll;
       if (attackTempLine) {
         map.removeLayer(attackTempLine);
         attackTempLine = null;
       }
 
       const coords = [[attackStart.lat, attackStart.lng], [end.lat, end.lng]];
-      const y = window.__ensureYear(window.__currentYear());
-      y.attacks.push({
+      const y2 = window.__ensureYear(window.__currentYear());
+      y2.attacks.push({
         color: window.__attackColor(),
         thickness: window.__attackThickness(),
         coords
@@ -1485,7 +1514,6 @@
         attackTempLine = null;
       }
       attackStart = null;
-      // Прервать рисование
       if (isDrawing) {
         isDrawing = false;
         stopAutoPan();
@@ -1499,7 +1527,6 @@
     }
   });
 
-  // Фикс: если ЛКМ отпущен вне окна — прекратить рисование
   window.addEventListener('blur', () => {
     if (isDrawing) {
       isDrawing = false;
@@ -1512,23 +1539,15 @@
       drawType = null;
     }
   });
-
-  // Фикс: ПКМ не должен начинать рисование
-  mapContainer.addEventListener('mousedown', e => {
-    if (e.button === 2) {
-      e.stopPropagation();
-      e.preventDefault();
-    }
-  }, true);
 </script>
 <script>
   // ============================================================
-  // ЧАСТЬ 5 — экспорт, импорт, финальные фиксы
+  // ЧАСТЬ 5 — экспорт, импорт
   // ============================================================
 
   document.getElementById('btnExport').addEventListener('click', () => {
     const data = {
-      version: 5,
+      version: 6,
       exportedAt: new Date().toISOString(),
       sides: window.__sides,
       activeSide: window.__activeSide(),
@@ -1582,29 +1601,37 @@
     e.target.value = '';
   });
 
-  // Финальная подсказка
-  if (!localStorage.getItem('x3led-map-welcome-final')) {
+  if (!localStorage.getItem('x3led-map-welcome-v6')) {
     setTimeout(() => {
       alert(
         'Редактор карты:\n\n' +
-        '• Стороны: добавляй страны через поиск, меняй цвет кликом по кружочку\n' +
+        '• Стороны: поиск + цвет по клику на кружок\n' +
         '• Аннексия: клик по стране\n' +
-        '• Обводка: зажми ЛКМ → обведи → отпусти\n' +
-        '• Карандаш: зажми ЛКМ → веди → свободная линия\n' +
-        '• Линия атаки: 2 клика ЛКМ → стрелка\n' +
-        '• Линия продвижения: зажми ЛКМ → проведи\n' +
+        '• Обводка / Карандаш / Продвижение: зажми ЛКМ и веди\n' +
+        '• Линия атаки: 2 клика ЛКМ\n' +
         '• Отменить последнее — удаляет последнюю фигуру\n' +
-        '• Удалить всё (этот год) — очищает год и обнуляет стороны\n' +
-        '• ПКМ — двигать карту\n' +
+        '• Удалить всё (этот год) — очищает год и стороны\n' +
+        '• ПКМ — двигать карту (ЛКМ никогда не тащит)\n' +
         '• ESC — отмена'
       );
-      try { localStorage.setItem('x3led-map-welcome-final', '1'); } catch (err) {}
+      try { localStorage.setItem('x3led-map-welcome-v6', '1'); } catch (err) {}
     }, 1500);
   }
 
-  console.log('%c[Карта готова — финал]', 'color:#8b6cff;font-size:16px;font-weight:bold');
-  console.log('Стороны: A =', window.__sides.A.countries.length, ', B =', window.__sides.B.countries.length);
-  console.log('Годы с данными:', Object.keys(window.__yearsData).length);
+  console.log('%c[Карта готова — v6]', 'color:#8b6cff;font-size:16px;font-weight:bold');
+</script>
+<script>
+  // ============================================================
+  // ЧАСТЬ 6 — финал, закрытие
+  // ============================================================
+
+  // Финальный лог
+  setTimeout(() => {
+    console.log('%c[Всё готово]', 'color:#22ddaa;font-size:14px;font-weight:bold');
+    console.log('Режимы карты: Спутник / Спутник+дороги / OSM карта / Тёмная');
+    console.log('Инструменты: аннексия, обводка, карандаш, атака, продвижение');
+    console.log('Движение: только ПКМ');
+  }, 1000);
 </script>
 
 </body>
