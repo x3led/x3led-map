@@ -3,1636 +3,701 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Карта — редактор</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<title>Редактор политической карты мира</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  :root {
-    --bg: #0a0a12;
-    --panel: rgba(15,15,25,0.94);
-    --panel-solid: #0f0f19;
-    --border: rgba(255,255,255,0.08);
-    --border-strong: rgba(255,255,255,0.15);
-    --text: #e8e8f0;
-    --text-dim: #8888a0;
-    --text-faint: #55556a;
-    --accent: #8b6cff;
-  }
-  html, body {
-    height: 100%; overflow: hidden;
-    background: var(--bg); color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;
-    font-size: 14px;
-  }
-  #map { position: fixed; inset: 0; z-index: 1; background: #0a0a12; }
-  /* Карта двигается ТОЛЬКО ПКМ. ЛКМ никогда не тащит */
-  #map .leaflet-grab,
-  #map .leaflet-dragging .leaflet-grab,
-  #map .leaflet-dragging .leaflet-dragging { cursor: default !important; }
-  #map.drawing .leaflet-grab { cursor: crosshair !important; }
+  :root { --accent:#8b6cff; --bg:#16181f; --bg2:#1e212b; --bg3:#262a37; --text:#e6e8f0; --muted:#9aa0b4; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html,body { height:100%; overflow:hidden; font-family:'Segoe UI',system-ui,sans-serif; background:#0d0f14; color:var(--text); }
+  #map { position:absolute; inset:0; user-select:none; -webkit-user-select:none; }
+  body:not([data-tool="pointer"]) #map { cursor:crosshair; }
 
-  .panel {
-    position: fixed; top: 16px; left: 16px;
-    width: 340px; max-height: calc(100vh - 32px);
-    overflow-y: auto;
-    background: var(--panel); border: 1px solid var(--border);
-    border-radius: 16px;
-    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-    z-index: 1000; padding: 16px;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.6);
-    transition: transform 0.3s;
+  /* ===== Левая панель ===== */
+  #panel {
+    position:absolute; top:0; left:0; bottom:0; width:308px; z-index:1000;
+    background:var(--bg); border-right:1px solid #2c3040;
+    padding:14px 14px 20px; overflow-y:auto;
+    transition:transform .25s ease;
   }
-  .panel.hidden { transform: translateX(-380px); }
-  .panel::-webkit-scrollbar { width: 5px; }
-  .panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  body.panel-collapsed #panel { transform:translateX(-100%); }
+  #collapseBtn {
+    position:absolute; top:12px; left:308px; z-index:1001;
+    width:26px; height:44px; border:none; border-radius:0 8px 8px 0;
+    background:var(--bg); color:var(--accent); font-size:15px; cursor:pointer;
+    border-top:1px solid #2c3040; border-right:1px solid #2c3040; border-bottom:1px solid #2c3040;
+    transition:left .25s ease;
+  }
+  body.panel-collapsed #collapseBtn { left:0; }
+  #panel h1 { font-size:15px; font-weight:700; margin-bottom:12px; color:var(--accent); letter-spacing:.3px; }
+  .section { background:var(--bg2); border:1px solid #2c3040; border-radius:10px; padding:10px 12px; margin-bottom:10px; }
+  .section h2 { font-size:11px; text-transform:uppercase; letter-spacing:.8px; color:var(--muted); margin-bottom:8px; }
+  .row { display:flex; gap:8px; align-items:center; }
+  .row + .row { margin-top:8px; }
+  button { font-family:inherit; }
 
-  .panel-header {
-    display: flex; justify-content: space-between; align-items: center;
-    margin-bottom: 14px; padding-bottom: 12px;
-    border-bottom: 1px solid var(--border);
+  /* Переключатель активной стороны */
+  .side-toggle { display:flex; gap:6px; }
+  .side-toggle button {
+    flex:1; padding:8px 0; border-radius:8px; border:1px solid #3a3f52; background:var(--bg3);
+    color:var(--text); font-weight:700; font-size:13px; cursor:pointer; transition:.15s;
   }
-  .panel-title { font-size: 15px; font-weight: 600; }
-  .panel-close {
-    background: transparent; border: none; color: var(--text-faint);
-    font-size: 18px; cursor: pointer; padding: 2px 8px;
-    border-radius: 6px; transition: all 0.2s;
-  }
-  .panel-close:hover { color: var(--text); background: rgba(255,255,255,0.05); }
+  .side-toggle button.active { border-color:var(--accent); background:var(--accent); color:#fff; box-shadow:0 0 10px rgba(139,108,255,.45); }
 
-  .section { margin-bottom: 16px; }
-  .section-title {
-    font-size: 10px; text-transform: uppercase;
-    letter-spacing: 1.5px; color: var(--text-faint);
-    margin-bottom: 8px; font-weight: 600;
+  /* Блок стороны */
+  .side-block { position:relative; border:1px solid #333850; border-radius:8px; padding:8px; margin-bottom:8px; background:var(--bg3); }
+  .side-head { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+  .side-head .dot { width:12px; height:12px; border-radius:50%; flex:none; }
+  .side-head b { font-size:13px; flex:1; }
+  input[type="color"] { width:34px; height:26px; border:none; background:none; padding:0; cursor:pointer; }
+  .search-wrap { position:relative; }
+  .search-wrap input {
+    width:100%; padding:6px 9px; border-radius:6px; border:1px solid #3a3f52; background:var(--bg);
+    color:var(--text); font-size:12.5px; outline:none;
   }
+  .search-wrap input:focus { border-color:var(--accent); }
+  .ac-list {
+    position:absolute; top:calc(100% + 3px); left:0; right:0; z-index:50; display:none;
+    background:#20242f; border:1px solid var(--accent); border-radius:6px; max-height:170px; overflow-y:auto;
+  }
+  .ac-list div { padding:6px 9px; font-size:12.5px; cursor:pointer; }
+  .ac-list div:hover { background:var(--accent); color:#fff; }
+  .chips { display:flex; flex-wrap:wrap; gap:5px; margin-top:7px; max-height:110px; overflow-y:auto; }
+  .chip {
+    display:inline-flex; align-items:center; gap:5px; padding:3px 7px; border-radius:12px;
+    font-size:11.5px; color:#fff; border:1px solid rgba(255,255,255,.25);
+  }
+  .chip button { background:none; border:none; color:#fff; cursor:pointer; font-size:12px; line-height:1; opacity:.8; }
+  .chip button:hover { opacity:1; }
 
-  .side-block {
-    background: rgba(255,255,255,0.03);
-    border: 1px solid var(--border);
-    border-radius: 12px; padding: 12px;
-    margin-bottom: 10px; transition: all 0.2s;
+  /* Инструменты */
+  .tools { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  .tool-btn {
+    padding:8px 6px; border-radius:8px; border:1px solid #3a3f52; background:var(--bg3);
+    color:var(--text); font-size:12px; cursor:pointer; transition:.15s; text-align:center;
   }
-  .side-block.active {
-    border-color: var(--accent);
-    background: rgba(139,108,255,0.08);
-  }
-  .side-head {
-    display: flex; align-items: center; gap: 10px;
-    margin-bottom: 10px;
-  }
-  .side-dot {
-    width: 18px; height: 18px; border-radius: 50%;
-    flex-shrink: 0; box-shadow: 0 0 10px currentColor;
-    cursor: pointer; position: relative;
-    border: 2px solid rgba(255,255,255,0.15);
-  }
-  .side-dot input[type="color"] {
-    position: absolute; inset: -4px;
-    width: calc(100% + 8px); height: calc(100% + 8px);
-    border: none; padding: 0; cursor: pointer; opacity: 0;
-  }
-  .side-name { flex: 1; font-weight: 600; font-size: 13px; cursor: pointer; }
-  .side-count {
-    font-size: 10px; color: var(--text-faint);
-    background: rgba(255,255,255,0.05);
-    padding: 2px 8px; border-radius: 10px;
-  }
+  .tool-btn:hover { border-color:var(--accent); }
+  .tool-btn.active { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+  .opt { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--muted); margin-top:7px; }
+  .opt label { flex:1; }
+  .opt input[type="range"] { width:90px; accent-color:var(--accent); }
 
-  .side-countries {
-    display: flex; flex-wrap: wrap; gap: 6px;
-    margin-bottom: 10px; min-height: 20px;
-  }
-  .country-chip {
-    display: inline-flex; align-items: center; gap: 4px;
-    padding: 4px 8px; background: rgba(255,255,255,0.06);
-    border-radius: 6px; font-size: 11px; color: var(--text-dim);
-  }
-  .country-chip .remove {
-    cursor: pointer; color: var(--text-faint);
-    font-size: 13px; line-height: 1;
-  }
-  .country-chip .remove:hover { color: #ff6b6b; }
-
-  .empty-hint {
-    font-size: 11px; color: var(--text-faint); font-style: italic;
-  }
-
-  .search-wrap { position: relative; }
-  .search-input {
-    width: 100%; padding: 8px 12px;
-    background: rgba(255,255,255,0.04);
-    border: 1px solid var(--border);
-    border-radius: 8px; color: var(--text);
-    font: inherit; font-size: 12px;
-    outline: none; transition: all 0.2s;
-  }
-  .search-input:focus {
-    border-color: var(--accent);
-    background: rgba(139,108,255,0.05);
-  }
-  .search-input::placeholder { color: var(--text-faint); }
-
-  .search-results {
-    position: absolute; top: calc(100% + 4px); left: 0; right: 0;
-    background: var(--panel-solid);
-    border: 1px solid var(--border-strong);
-    border-radius: 8px; max-height: 200px; overflow-y: auto;
-    z-index: 100; display: none;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.6);
-  }
-  .search-results.show { display: block; }
-  .search-results::-webkit-scrollbar { width: 4px; }
-  .search-results::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-
-  .search-item {
-    padding: 8px 12px; font-size: 12px;
-    cursor: pointer; transition: background 0.15s;
-    color: var(--text-dim);
-  }
-  .search-item:hover { background: rgba(255,255,255,0.06); color: var(--text); }
-  .search-item.empty {
-    color: var(--text-faint); font-style: italic; cursor: default;
-  }
-
+  /* Действия / файл */
   .btn {
-    width: 100%; padding: 10px 14px;
-    background: rgba(255,255,255,0.04);
-    border: 1px solid var(--border);
-    color: var(--text); border-radius: 10px;
-    font: inherit; font-size: 12px; font-weight: 500;
-    cursor: pointer; transition: all 0.2s;
-    display: flex; align-items: center; gap: 8px;
-    margin-bottom: 6px; text-align: left;
+    flex:1; padding:8px 6px; border-radius:8px; border:1px solid #3a3f52; background:var(--bg3);
+    color:var(--text); font-size:12.5px; cursor:pointer; transition:.15s;
   }
-  .btn:hover {
-    background: rgba(255,255,255,0.08);
-    border-color: var(--border-strong);
-  }
-  .btn:active { transform: scale(0.99); }
-  .btn.active {
-    background: rgba(139,108,255,0.2);
-    border-color: var(--accent); color: var(--text);
-  }
-  .btn .icon { font-size: 15px; flex-shrink: 0; }
-  .btn .label { flex: 1; }
-  .btn .btn-extra {
-    width: 22px; height: 22px;
-    border-radius: 50%;
-    border: 2px solid rgba(255,255,255,0.2);
-    cursor: pointer; position: relative; overflow: hidden;
-    flex-shrink: 0;
-  }
-  .btn .btn-extra input[type="color"] {
-    position: absolute; inset: -10px;
-    width: 50px; height: 50px;
-    border: none; padding: 0; cursor: pointer; opacity: 0;
-  }
-  .btn.danger { color: #ff6b6b; }
-  .btn.danger:hover { background: rgba(255,80,80,0.1); border-color: rgba(255,80,80,0.3); }
-  .btn.warning { color: #ffb84d; }
-  .btn.warning:hover { background: rgba(255,180,80,0.1); border-color: rgba(255,180,80,0.3); }
+  .btn:hover { border-color:var(--accent); color:#fff; }
+  .btn.danger:hover { border-color:#e05252; background:#e05252; }
+  .btn.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
 
-  .thickness-row {
-    display: flex; align-items: center; gap: 8px;
-    padding: 6px 10px;
-    background: rgba(255,255,255,0.02);
-    border-radius: 8px;
-    margin-bottom: 6px;
-  }
-  .thickness-row label {
-    font-size: 10px; color: var(--text-faint);
-    text-transform: uppercase; letter-spacing: 1px;
-    flex-shrink: 0;
-  }
-  .thickness-row input[type="range"] {
-    flex: 1; height: 3px;
-    -webkit-appearance: none;
-    background: var(--border); border-radius: 3px;
-    outline: none;
-  }
-  .thickness-row input[type="range"]::-webkit-slider-thumb {
-    -webkit-appearance: none; width: 12px; height: 12px;
-    background: var(--accent); border-radius: 50%; cursor: pointer;
-  }
-  .thickness-row .val {
-    font-size: 11px; color: var(--text); min-width: 22px;
-    text-align: right; font-variant-numeric: tabular-nums;
-  }
+  /* Год */
+  #yearVal { font-size:20px; font-weight:700; color:var(--accent); min-width:58px; text-align:center; }
+  input[type="range"].year { flex:1; accent-color:var(--accent); }
 
-  .year-panel {
-    position: fixed; bottom: 20px; left: 50%;
-    transform: translateX(-50%);
-    background: var(--panel); border: 1px solid var(--border);
-    border-radius: 14px; padding: 10px 18px;
-    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-    z-index: 1000; display: flex; align-items: center; gap: 12px;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.6);
-    min-width: 460px;
+  /* Переключатель подложки */
+  #basemapSwitch {
+    position:absolute; top:12px; right:12px; z-index:1000; display:flex; gap:4px;
+    background:rgba(22,24,31,.92); border:1px solid #2c3040; border-radius:10px; padding:4px;
   }
-  .year-display {
-    font-size: 22px; font-weight: 700;
-    font-variant-numeric: tabular-nums;
-    min-width: 62px; text-align: center;
-    color: var(--accent);
+  #basemapSwitch button {
+    padding:7px 12px; border:none; border-radius:7px; background:transparent; color:var(--muted);
+    font-size:12px; cursor:pointer; transition:.15s;
   }
-  .year-slider {
-    -webkit-appearance: none; appearance: none;
-    flex: 1; height: 4px;
-    background: var(--border); border-radius: 4px;
-    outline: none; cursor: pointer;
-  }
-  .year-slider::-webkit-slider-thumb {
-    -webkit-appearance: none; width: 16px; height: 16px;
-    background: var(--accent); border-radius: 50%;
-    cursor: pointer; box-shadow: 0 0 12px rgba(139,108,255,0.7);
-  }
-  .year-slider::-moz-range-thumb {
-    width: 16px; height: 16px;
-    background: var(--accent); border-radius: 50%;
-    cursor: pointer; border: none;
-  }
-  .year-btn {
-    background: transparent; border: none;
-    color: var(--text-dim); font-size: 18px;
-    cursor: pointer; padding: 4px 8px;
-    border-radius: 6px; transition: all 0.2s;
-  }
-  .year-btn:hover { color: var(--text); background: rgba(255,255,255,0.05); }
+  #basemapSwitch button.active { background:var(--accent); color:#fff; font-weight:600; }
 
-  /* ПЕРЕКЛЮЧАТЕЛЬ КАРТЫ — 4 РЕЖИМА */
-  .map-switch {
-    position: fixed; top: 16px; right: 16px;
-    display: flex; gap: 4px;
-    background: var(--panel); border: 1px solid var(--border);
-    border-radius: 12px; padding: 4px;
-    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-    z-index: 1000;
+  /* Подписи городов */
+  .city-label {
+    background:transparent; border:none; box-shadow:none; color:#fff;
+    font-size:11px; font-weight:600; text-shadow:0 0 3px #000,0 0 4px #000,0 0 5px #000;
+    white-space:nowrap;
   }
-  .map-switch button {
-    padding: 8px 12px; background: transparent;
-    border: none; color: var(--text-dim);
-    border-radius: 8px; font: inherit; font-size: 11px;
-    cursor: pointer; transition: all 0.2s;
-    white-space: nowrap;
+  .city-label::before { display:none; }
+  .country-tip { background:rgba(22,24,31,.95); border:1px solid var(--accent); color:#fff; font-size:12px; border-radius:6px; }
+  .leaflet-container { background:#0a0c10; font-family:inherit; }
+  #loading {
+    position:absolute; inset:0; z-index:2000; display:flex; align-items:center; justify-content:center;
+    background:#0d0f14; color:var(--accent); font-size:15px; letter-spacing:.5px;
   }
-  .map-switch button:hover { color: var(--text); background: rgba(255,255,255,0.05); }
-  .map-switch button.active { background: var(--accent); color: #fff; }
-
-  .panel-open {
-    position: fixed; top: 16px; left: 16px;
-    width: 44px; height: 44px;
-    background: var(--panel); border: 1px solid var(--border);
-    border-radius: 12px; color: var(--text);
-    font-size: 18px; cursor: pointer;
-    backdrop-filter: blur(16px);
-    z-index: 999; display: none;
-    align-items: center; justify-content: center;
-  }
-  .panel-open.visible { display: flex; }
-  .panel-open:hover { background: rgba(255,255,255,0.08); }
-
-  .stats { display: flex; gap: 6px; margin-top: 6px; }
-  .stat {
-    flex: 1; padding: 8px;
-    background: rgba(255,255,255,0.03);
-    border: 1px solid var(--border);
-    border-radius: 8px; text-align: center;
-  }
-  .stat-value {
-    font-size: 16px; font-weight: 700;
-    font-variant-numeric: tabular-nums;
-  }
-  .stat-label {
-    font-size: 9px; color: var(--text-faint);
-    text-transform: uppercase; letter-spacing: 1px;
-    margin-top: 2px;
-  }
-
-  .hint {
-    font-size: 11px; color: var(--text-faint);
-    line-height: 1.5; padding: 8px 10px;
-    background: rgba(255,255,255,0.02);
-    border-radius: 8px;
-    border: 1px dashed var(--border);
-    margin-top: 6px;
-  }
-
-  .attack-arrow { pointer-events: none; }
-  .hub-marker { pointer-events: none; }
-
-  @media (max-width: 720px) {
-    .panel { width: calc(100vw - 32px); max-width: 340px; }
-    .year-panel {
-      min-width: auto; width: calc(100vw - 24px);
-      left: 12px; right: 12px; transform: none;
-      padding: 8px 12px; gap: 8px;
-    }
-    .year-display { font-size: 17px; min-width: 50px; }
-    .map-switch { top: 12px; right: 12px; padding: 3px; flex-wrap: wrap; max-width: 60vw; }
-    .map-switch button { padding: 5px 8px; font-size: 10px; }
-  }
+  #panel::-webkit-scrollbar, .chips::-webkit-scrollbar, .ac-list::-webkit-scrollbar { width:6px; }
+  #panel::-webkit-scrollbar-thumb, .chips::-webkit-scrollbar-thumb, .ac-list::-webkit-scrollbar-thumb { background:#3a3f52; border-radius:3px; }
 </style>
 </head>
-<body>
+<body data-tool="pointer">
 
 <div id="map"></div>
+<div id="loading">Загрузка карты…</div>
 
-<aside class="panel" id="panel">
-  <div class="panel-header">
-    <div class="panel-title">Редактор карты</div>
-    <button class="panel-close" id="panelClose">&times;</button>
+<button id="collapseBtn" title="Свернуть/развернуть панель">◀</button>
+
+<div id="panel">
+  <h1>🗺 Редактор политической карты</h1>
+
+  <div class="section">
+    <h2>Активная сторона</h2>
+    <div class="side-toggle">
+      <button id="sideA" class="active">Сторона А</button>
+      <button id="sideB">Сторона Б</button>
+    </div>
   </div>
 
   <div class="section">
-    <div class="section-title">Стороны</div>
-
-    <div class="side-block active" id="sideBlockA" data-side="A">
+    <h2>Стороны</h2>
+    <div class="side-block" data-side="A">
       <div class="side-head">
-        <div class="side-dot" id="sideDotA" style="background:#e63946;color:#e63946;">
-          <input type="color" id="colorA" value="#e63946" title="Цвет стороны А">
-        </div>
-        <div class="side-name" data-side-select="A">Сторона А</div>
-        <div class="side-count" id="sideCountA">0</div>
-      </div>
-      <div class="side-countries" id="sideListA">
-        <span class="empty-hint">Добавь страны через поиск</span>
+        <span class="dot" id="dotA"></span><b>Сторона А</b>
+        <input type="color" id="colorA" value="#e05252">
       </div>
       <div class="search-wrap">
-        <input type="text" class="search-input" id="searchA" placeholder="+ Добавить страну..." autocomplete="off">
-        <div class="search-results" id="resultsA"></div>
+        <input type="text" id="searchA" placeholder="Добавить страну…" autocomplete="off">
+        <div class="ac-list" id="acA"></div>
       </div>
+      <div class="chips" id="chipsA"></div>
     </div>
-
-    <div class="side-block" id="sideBlockB" data-side="B">
+    <div class="side-block" data-side="B">
       <div class="side-head">
-        <div class="side-dot" id="sideDotB" style="background:#457b9d;color:#457b9d;">
-          <input type="color" id="colorB" value="#457b9d" title="Цвет стороны Б">
-        </div>
-        <div class="side-name" data-side-select="B">Сторона Б</div>
-        <div class="side-count" id="sideCountB">0</div>
-      </div>
-      <div class="side-countries" id="sideListB">
-        <span class="empty-hint">Добавь страны через поиск</span>
+        <span class="dot" id="dotB"></span><b>Сторона Б</b>
+        <input type="color" id="colorB" value="#4f7cff">
       </div>
       <div class="search-wrap">
-        <input type="text" class="search-input" id="searchB" placeholder="+ Добавить страну..." autocomplete="off">
-        <div class="search-results" id="resultsB"></div>
+        <input type="text" id="searchB" placeholder="Добавить страну…" autocomplete="off">
+        <div class="ac-list" id="acB"></div>
       </div>
+      <div class="chips" id="chipsB"></div>
     </div>
   </div>
 
   <div class="section">
-    <div class="section-title">Инструменты</div>
-
-    <button class="btn" id="btnAnnex">
-      <span class="icon">&#127988;</span>
-      <span class="label">Аннексия страны</span>
-    </button>
-
-    <button class="btn" id="btnLasso">
-      <span class="icon">&#9998;</span>
-      <span class="label">Обвести регион</span>
-    </button>
-
-    <button class="btn" id="btnPencil">
-      <span class="icon">&#128396;</span>
-      <span class="label">Карандаш</span>
-      <div class="btn-extra" id="pencilColorWrap" style="background:#8b6cff;">
-        <input type="color" id="pencilColor" value="#8b6cff" title="Цвет карандаша">
-      </div>
-    </button>
-    <div class="thickness-row">
-      <label>Толщина</label>
-      <input type="range" id="pencilThickness" min="1" max="12" value="3">
-      <span class="val" id="pencilThicknessVal">3</span>
+    <h2>Инструменты</h2>
+    <div class="tools">
+      <button class="tool-btn active" data-tool="pointer">🖱 Курсор</button>
+      <button class="tool-btn" data-tool="annex">🏴 Аннексия страны</button>
+      <button class="tool-btn" data-tool="lasso">⭕ Обвести регион</button>
+      <button class="tool-btn" data-tool="pencil">✏️ Карандаш</button>
+      <button class="tool-btn" data-tool="attack">⚔️ Линия атаки</button>
+      <button class="tool-btn" data-tool="advance">➡️ Линия продвижения</button>
     </div>
-
-    <button class="btn" id="btnAttack">
-      <span class="icon">&#9876;</span>
-      <span class="label">Линия атаки (2 клика)</span>
-      <div class="btn-extra" id="attackColorWrap" style="background:#ffaa33;">
-        <input type="color" id="attackColor" value="#ffaa33" title="Цвет атаки">
-      </div>
-    </button>
-    <div class="thickness-row">
-      <label>Толщина</label>
-      <input type="range" id="attackThickness" min="1" max="10" value="3">
-      <span class="val" id="attackThicknessVal">3</span>
-    </div>
-
-    <button class="btn" id="btnAdvance">
-      <span class="icon">&#10148;</span>
-      <span class="label">Линия продвижения</span>
-    </button>
+    <div class="opt"><label>Карандаш: цвет</label><input type="color" id="pencilColor" value="#ffd166"></div>
+    <div class="opt"><label>Карандаш: толщина</label><input type="range" id="pencilWeight" min="1" max="12" value="3"></div>
+    <div class="opt"><label>Атака: цвет</label><input type="color" id="attackColor" value="#ff3b3b"></div>
+    <div class="opt"><label>Атака: толщина</label><input type="range" id="attackWeight" min="1" max="12" value="4"></div>
+    <div class="opt"><label>Продвижение: толщина</label><input type="range" id="advanceWeight" min="8" max="40" value="18"></div>
   </div>
 
   <div class="section">
-    <div class="section-title">Активная сторона</div>
-    <button class="btn" id="activeSideBtn">
-      <span class="side-dot" id="activeSideDot" style="width:12px;height:12px;border-radius:50%;box-shadow:0 0 8px currentColor;background:#e63946;color:#e63946;"></span>
-      <span class="label" id="activeSideLabel">Сторона А</span>
-    </button>
-  </div>
-
-  <div class="section">
-    <div class="section-title">Действия</div>
-    <button class="btn warning" id="btnUndo">
-      <span class="icon">&#8630;</span>
-      <span class="label">Отменить последнее</span>
-    </button>
-    <button class="btn danger" id="btnClear">
-      <span class="icon">&#128465;</span>
-      <span class="label">Удалить всё (этот год)</span>
-    </button>
-  </div>
-
-  <div class="section">
-    <div class="section-title">Файл карты</div>
-    <button class="btn" id="btnExport">
-      <span class="icon">&#128190;</span>
-      <span class="label">Сохранить в файл</span>
-    </button>
-    <button class="btn" id="btnImport">
-      <span class="icon">&#128194;</span>
-      <span class="label">Загрузить из файла</span>
-    </button>
-    <input type="file" id="importFile" accept=".json,application/json" style="display:none">
-  </div>
-
-  <div class="section">
-    <div class="section-title">Статистика · <span id="statsYear">2026</span></div>
-    <div class="stats">
-      <div class="stat">
-        <div class="stat-value" id="statRegions">0</div>
-        <div class="stat-label">регионов</div>
-      </div>
-      <div class="stat">
-        <div class="stat-value" id="statLines">0</div>
-        <div class="stat-label">линий</div>
-      </div>
-      <div class="stat">
-        <div class="stat-value" id="statAttacks">0</div>
-        <div class="stat-label">атак</div>
-      </div>
-    </div>
-    <div class="hint">
-      ПКМ — двигать карту.<br>
-      ЛКМ — рисовать в режиме инструмента.<br>
-      ESC — отменить режим.
+    <h2>Действия</h2>
+    <div class="row">
+      <button class="btn" id="undoBtn">↩ Отменить последнее</button>
+      <button class="btn danger" id="clearYearBtn">🗑 Удалить всё за год</button>
     </div>
   </div>
-</aside>
 
-<button class="panel-open" id="panelOpen">&#9776;</button>
+  <div class="section">
+    <h2>Год</h2>
+    <div class="row">
+      <input type="range" class="year" id="yearSlider" min="1950" max="2026" value="2026">
+      <span id="yearVal">2026</span>
+    </div>
+  </div>
 
-<div class="map-switch">
-  <button class="active" data-map="satellite">Спутник</button>
-  <button data-map="hybrid">Спутник+дороги</button>
-  <button data-map="osm">OSM карта</button>
-  <button data-map="dark">Тёмная</button>
+  <div class="section">
+    <h2>Файл</h2>
+    <div class="row">
+      <button class="btn primary" id="exportBtn">💾 Экспорт JSON</button>
+      <button class="btn" id="importBtn">📂 Импорт JSON</button>
+      <input type="file" id="importFile" accept=".json,application/json" style="display:none">
+    </div>
+  </div>
 </div>
 
-<div class="year-panel">
-  <button class="year-btn" id="yearPrev">&#8249;</button>
-  <div class="year-display" id="yearDisplay">2026</div>
-  <input type="range" class="year-slider" id="yearSlider" min="1950" max="2026" value="2026" step="1">
-  <button class="year-btn" id="yearNext">&#8250;</button>
+<div id="basemapSwitch">
+  <button data-bm="sat">Спутник</button>
+  <button data-bm="satroads" class="active">Спутник + дороги</button>
+  <button data-bm="osm">OSM</button>
 </div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-  // ============================================================
-  // ЧАСТЬ 2 — карта, режимы, страны, города, дороги, ПКМ-драг
-  // ============================================================
+/* ==================== СОСТОЯНИЕ ==================== */
+const LS_KEY = 'polmap.v1';
+const GEO_URL = 'https://cdn.jsdelivr.net/gh/nvkelso/natural-earth-vector@master/geojson/ne_110m_admin_0_countries.geojson';
 
-  // ---------- КАРТА (ЛКМ никогда не тащит) ----------
-  const map = L.map('map', {
-    center: [30, 30],
-    zoom: 3,
-    minZoom: 2,
-    maxZoom: 18,
-    worldCopyJump: true,
-    zoomControl: false,
-    dragging: false,    // полностью отключаем встроенный драг
-    tap: false,
-    contextmenu: false,
-    boxZoom: false,
-    keyboard: false
-  });
-
-  L.control.zoom({ position: 'bottomright' }).addTo(map);
-  map.getContainer().addEventListener('contextmenu', e => e.preventDefault());
-
-  // ---------- ДВИЖЕНИЕ ТОЛЬКО ПКМ ----------
-  (function rightClickPan() {
-    const container = map.getContainer();
-    let isPanning = false;
-    let startX = 0, startY = 0;
-    let startCenter = null;
-
-    container.addEventListener('mousedown', e => {
-      if (e.button !== 2) return;
-      e.preventDefault();
-      e.stopPropagation();
-      isPanning = true;
-      startX = e.clientX;
-      startY = e.clientY;
-      startCenter = map.getCenter();
-      container.style.cursor = 'grabbing';
-    }, true);
-
-    document.addEventListener('mousemove', e => {
-      if (!isPanning) return;
-      const dx = e.clientX - startX;
-      const dy = e.clientY - startY;
-      const startPoint = map.project(startCenter, map.getZoom());
-      const newPoint = L.point(startPoint.x - dx, startPoint.y - dy);
-      const newCenter = map.unproject(newPoint, map.getZoom());
-      map.setView(newCenter, map.getZoom(), { animate: false });
-    });
-
-    document.addEventListener('mouseup', e => {
-      if (e.button !== 2) return;
-      isPanning = false;
-      container.style.cursor = '';
-    });
-  })();
-
-  // ---------- ТАЙЛЫ КАРТЫ (4 РЕЖИМА) ----------
-  const layers = {
-    satellite: L.tileLayer(
-      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-      { maxZoom: 18, attribution: '&copy; Esri' }
-    ),
-    hybrid: L.tileLayer(
-      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-      { maxZoom: 18, attribution: '&copy; Esri' }
-    ),
-    osm: L.tileLayer(
-      'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-      { maxZoom: 19, attribution: '&copy; OpenStreetMap' }
-    ),
-    dark: L.tileLayer(
-      'https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png',
-      { maxZoom: 19, subdomains: 'abcd', attribution: '&copy; OSM, CARTO' }
-    )
+function defaultState(){
+  return {
+    sides: { A:{color:'#e05252'}, B:{color:'#4f7cff'} },
+    years: {},            // year -> {assign:{A:[keys],B:[keys]}, drawings:[], actions:[]}
+    currentYear: 2026
   };
+}
+function loadState(){
+  try { const s = JSON.parse(localStorage.getItem(LS_KEY)); if(s && s.sides && s.years) return s; } catch(e){}
+  return defaultState();
+}
+let state = loadState();
+function save(){ try{ localStorage.setItem(LS_KEY, JSON.stringify(state)); }catch(e){} }
+function yearData(){
+  const y = state.currentYear;
+  if(!state.years[y]) state.years[y] = { assign:{A:[],B:[]}, drawings:[], actions:[] };
+  return state.years[y];
+}
+let uid = 1;
+function nextId(){ return Date.now().toString(36) + (uid++); }
 
-  // Дополнительные слои поверх (дороги, подписи)
-  const overlayLayers = {
-    satellite: null,
-    hybrid: L.tileLayer(
-      'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}',
-      { maxZoom: 18, opacity: 0.9, pane: 'overlayPane' }
-    ),
-    osm: null,
-    dark: L.tileLayer(
-      'https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png',
-      { maxZoom: 19, subdomains: 'abcd', pane: 'shadowPane', opacity: 0.85 }
-    )
-  };
+/* ==================== ГОРОДА (35) ==================== */
+const CITIES = [
+  ['Москва',55.7558,37.6173],['Санкт-Петербург',59.9343,30.3351],['Киев',50.4501,30.5234],
+  ['Минск',53.9006,27.559],['Варшава',52.2297,21.0122],['Берлин',52.52,13.405],
+  ['Париж',48.8566,2.3522],['Лондон',51.5074,-0.1278],['Мадрид',40.4168,-3.7038],
+  ['Рим',41.9028,12.4964],['Стамбул',41.0082,28.9784],['Каир',30.0444,31.2357],
+  ['Лагос',6.5244,3.3792],['Найроби',-1.2921,36.8219],['Кейптаун',-33.9249,18.4241],
+  ['Тегеран',35.6892,51.389],['Багдад',33.3152,44.3661],['Эр-Рияд',24.7136,46.6753],
+  ['Дубай',25.2048,55.2708],['Нью-Дели',28.6139,77.209],['Мумбаи',19.076,72.8777],
+  ['Бангкок',13.7563,100.5018],['Джакарта',-6.2088,106.8456],['Пекин',39.9042,116.4074],
+  ['Шанхай',31.2304,121.4737],['Токио',35.6762,139.6503],['Сеул',37.5665,126.978],
+  ['Сидней',-33.8688,151.2093],['Нью-Йорк',40.7128,-74.006],['Вашингтон',38.9072,-77.0369],
+  ['Лос-Анджелес',34.0522,-118.2437],['Торонто',43.6532,-79.3832],['Мехико',19.4326,-99.1332],
+  ['Сан-Паулу',-23.5505,-46.6333],['Буэнос-Айрес',-34.6037,-58.3816]
+];
 
-  let currentLayer = layers.satellite;
-  let currentOverlay = null;
-  currentLayer.addTo(map);
+/* ==================== КАРТА ==================== */
+const map = L.map('map', {
+  dragging: false,          // ЛКМ НЕ двигает карту — движение только ПКМ
+  doubleClickZoom: false,
+  zoomControl: false,
+  worldCopyJump: true,
+  minZoom: 2,
+  maxBounds: [[-85,-Infinity],[85,Infinity]],
+  attributionControl: true
+}).setView([50, 30], 3);
+L.control.zoom({ position:'bottomright' }).addTo(map);
 
-  document.querySelectorAll('.map-switch button').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const key = btn.dataset.map;
-      document.querySelectorAll('.map-switch button').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
+/* Подложки */
+const esriSat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution:'Esri, Maxar, Earthstar Geographics' });
+const esriRoads = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}');
+const esriLabels = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}');
+const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution:'© OpenStreetMap' });
+const basemapLayers = { sat:[esriSat], satroads:[esriSat, esriRoads, esriLabels], osm:[osm] };
+let currentBasemap = null;
+function setBasemap(name){
+  if(currentBasemap) basemapLayers[currentBasemap].forEach(l => map.removeLayer(l));
+  basemapLayers[name].forEach(l => l.addTo(map));
+  currentBasemap = name;
+  document.querySelectorAll('#basemapSwitch button').forEach(b => b.classList.toggle('active', b.dataset.bm === name));
+}
+document.querySelectorAll('#basemapSwitch button').forEach(b => b.addEventListener('click', () => setBasemap(b.dataset.bm)));
+setBasemap('satroads');
 
-      map.removeLayer(currentLayer);
-      if (currentOverlay) map.removeLayer(currentOverlay);
+/* Подложки — под странами, рисунки — над */
+map.createPane('countriesPane'); map.getPane('countriesPane').style.zIndex = 350;
+map.createPane('drawPane');      map.getPane('drawPane').style.zIndex = 450;
+map.createPane('tempPane');      map.getPane('tempPane').style.zIndex = 460;
 
-      currentLayer = layers[key];
-      currentLayer.addTo(map);
+/* ==================== ПКМ — ДВИЖЕНИЕ КАРТЫ ==================== */
+let rmbPan = null;
+map.getContainer().addEventListener('contextmenu', e => e.preventDefault());
+document.addEventListener('mousedown', e => {
+  if(e.button === 2 && e.target.closest('#map')){
+    rmbPan = { x:e.clientX, y:e.clientY };
+    e.preventDefault();
+  }
+});
+document.addEventListener('mousemove', e => {
+  if(rmbPan){
+    map.panBy([rmbPan.x - e.clientX, rmbPan.y - e.clientY], { animate:false });
+    rmbPan = { x:e.clientX, y:e.clientY };
+  }
+});
+document.addEventListener('mouseup', e => { if(e.button === 2) rmbPan = null; });
 
-      if (overlayLayers[key]) {
-        currentOverlay = overlayLayers[key];
-        currentOverlay.addTo(map);
-      } else {
-        currentOverlay = null;
-      }
-    });
+/* ==================== СТРАНЫ ==================== */
+let geo = null;
+let countriesLayer = null;
+const byKey = {};        // ADM0_A3 -> {ru, en}
+const countryList = [];  // для поиска/автодополнения
+let activeSide = 'A';
+
+function sideOf(key){
+  const yd = yearData();
+  if(yd.assign.A.includes(key)) return 'A';
+  if(yd.assign.B.includes(key)) return 'B';
+  return null;
+}
+function countryStyle(feature){
+  const key = feature.properties.ADM0_A3;
+  const s = sideOf(key);
+  if(s) return { pane:'countriesPane', color:'#8b6cff', weight:1.1, opacity:.9,
+                 fillColor: state.sides[s].color, fillOpacity:.55 };   // закраска цветом стороны
+  return { pane:'countriesPane', color:'#8b6cff', weight:1.1, opacity:.9,
+           fillColor:'#232636', fillOpacity:.35 };
+}
+function refreshCountryStyles(){ if(countriesLayer) countriesLayer.setStyle(countryStyle); }
+
+function findCountryAt(latlng){
+  if(!geo) return null;
+  const pt = turf.point([latlng.lng, latlng.lat]);
+  for(const f of geo.features){
+    try { if(turf.booleanPointInPolygon(pt, f)) return f; } catch(e){}
+  }
+  return null;
+}
+
+fetch(GEO_URL).then(r => r.json()).then(g => {
+  geo = g;
+  geo.features.forEach(f => {
+    const p = f.properties;
+    const key = p.ADM0_A3 || p.NAME;
+    p.ADM0_A3 = key;
+    byKey[key] = { ru: p.NAME_RU || p.NAME, en: p.NAME };
+    countryList.push({ key, ru: p.NAME_RU || p.NAME, en: p.NAME });
   });
+  countryList.sort((a,b) => a.ru.localeCompare(b.ru, 'ru'));
 
-  // ---------- СТРАНЫ (без подсветки при наведении) ----------
-  const countriesLayer = L.geoJSON(null, {
-    style: () => ({
-      color: 'rgba(160,140,255,0.5)',
-      weight: 1,
-      fillColor: 'rgba(139,108,255,0.04)',
-      fillOpacity: 0.3,
-      opacity: 0.7
-    }),
-    onEachFeature: (feature, layer) => {
-      const p = feature.properties;
-      const nameRu = p.NAME_RU || p.name_ru || p.NAME || 'Неизвестно';
-      feature.properties.__nameRu = nameRu;
-      layer.__baseStyle = {
-        color: 'rgba(160,140,255,0.5)',
-        weight: 1,
-        fillColor: 'rgba(139,108,255,0.04)',
-        fillOpacity: 0.3,
-        opacity: 0.7
-      };
-      // Подсказка есть, но подсветки нет
-      layer.bindTooltip(nameRu, {
-        sticky: true, direction: 'top', offset: [0, -5]
-      });
+  countriesLayer = L.geoJSON(geo, {
+    pane:'countriesPane',
+    style: countryStyle,
+    onEachFeature: (f, layer) => {
+      layer.bindTooltip(byKey[f.properties.ADM0_A3].ru, { sticky:true, className:'country-tip', direction:'top' });
     }
   }).addTo(map);
 
-  const COUNTRIES_URL = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_admin_0_countries.geojson';
+  /* Города */
+  CITIES.forEach(([name, lat, lng]) => {
+    L.circleMarker([lat,lng], { radius:3.5, color:'#fff', weight:1, fillColor:'#ffd166', fillOpacity:1 }).addTo(map)
+      .bindTooltip(name, { permanent:true, direction:'top', offset:[0,-5], className:'city-label' });
+  });
 
-  fetch(COUNTRIES_URL)
-    .then(r => r.json())
-    .then(data => {
-      countriesLayer.addData(data);
-      console.log('Стран загружено:', data.features.length);
-      window.__countriesData = data.features;
-      window.dispatchEvent(new CustomEvent('countries:loaded'));
-    })
-    .catch(err => console.error('Ошибка загрузки стран:', err));
+  renderChips();
+  document.getElementById('loading').style.display = 'none';
+}).catch(err => {
+  document.getElementById('loading').textContent = 'Ошибка загрузка границ стран: ' + err.message;
+});
 
-  // ---------- ГОРОДА-ХАБЫ (русские названия) ----------
-  const bigCities = [
-    { name: 'Москва', coords: [55.7558, 37.6173], minZoom: 4, size: 'big' },
-    { name: 'Минск', coords: [53.9006, 27.5590], minZoom: 5, size: 'big' },
-    { name: 'Киев', coords: [50.4501, 30.5234], minZoom: 5, size: 'big' },
-    { name: 'Санкт-Петербург', coords: [59.9311, 30.3609], minZoom: 5, size: 'big' },
-    { name: 'Варшава', coords: [52.2297, 21.0122], minZoom: 5, size: 'big' },
-    { name: 'Берлин', coords: [52.5200, 13.4050], minZoom: 5, size: 'big' },
-    { name: 'Париж', coords: [48.8566, 2.3522], minZoom: 5, size: 'big' },
-    { name: 'Лондон', coords: [51.5074, -0.1278], minZoom: 5, size: 'big' },
-    { name: 'Рим', coords: [41.9028, 12.4964], minZoom: 5, size: 'big' },
-    { name: 'Мадрид', coords: [40.4168, -3.7038], minZoom: 5, size: 'big' },
-    { name: 'Прага', coords: [50.0755, 14.4378], minZoom: 5, size: 'med' },
-    { name: 'Вена', coords: [48.2082, 16.3738], minZoom: 5, size: 'med' },
-    { name: 'Будапешт', coords: [47.4979, 19.0402], minZoom: 5, size: 'med' },
-    { name: 'Бухарест', coords: [44.4268, 26.1025], minZoom: 5, size: 'med' },
-    { name: 'София', coords: [42.6977, 23.3219], minZoom: 5, size: 'med' },
-    { name: 'Афины', coords: [37.9838, 23.7275], minZoom: 5, size: 'med' },
-    { name: 'Анкара', coords: [39.9334, 32.8597], minZoom: 5, size: 'med' },
-    { name: 'Стамбул', coords: [41.0082, 28.9784], minZoom: 5, size: 'big' },
-    { name: 'Токио', coords: [35.6762, 139.6503], minZoom: 4, size: 'big' },
-    { name: 'Пекин', coords: [39.9042, 116.4074], minZoom: 4, size: 'big' },
-    { name: 'Шанхай', coords: [31.2304, 121.4737], minZoom: 5, size: 'big' },
-    { name: 'Сеул', coords: [37.5665, 126.9780], minZoom: 5, size: 'med' },
-    { name: 'Дели', coords: [28.6139, 77.2090], minZoom: 4, size: 'big' },
-    { name: 'Вашингтон', coords: [38.9072, -77.0369], minZoom: 4, size: 'big' },
-    { name: 'Нью-Йорк', coords: [40.7128, -74.0060], minZoom: 4, size: 'big' },
-    { name: 'Лос-Анджелес', coords: [34.0522, -118.2437], minZoom: 5, size: 'big' },
-    { name: 'Оттава', coords: [45.4215, -75.6972], minZoom: 5, size: 'med' },
-    { name: 'Мехико', coords: [19.4326, -99.1332], minZoom: 5, size: 'big' },
-    { name: 'Бразилиа', coords: [-15.8267, -47.9218], minZoom: 5, size: 'med' },
-    { name: 'Буэнос-Айрес', coords: [-34.6037, -58.3816], minZoom: 5, size: 'med' },
-    { name: 'Каир', coords: [30.0444, 31.2357], minZoom: 5, size: 'big' },
-    { name: 'Кейптаун', coords: [-33.9249, 18.4241], minZoom: 5, size: 'med' },
-    { name: 'Лагос', coords: [6.5244, 3.3792], minZoom: 5, size: 'med' },
-    { name: 'Сидней', coords: [-33.8688, 151.2093], minZoom: 4, size: 'med' },
-    { name: 'Канберра', coords: [-35.2809, 149.1300], minZoom: 5, size: 'med' }
-  ];
+/* ==================== ИЗМЕНЕНИЕ ПРИНАДЛЕЖНОСТИ ==================== */
+function assignKeys(keys, side){
+  if(!keys.length) return;
+  const yd = yearData();
+  const prior = {};
+  keys.forEach(k => { prior[k] = sideOf(k); });
+  ['A','B'].forEach(s => { yd.assign[s] = yd.assign[s].filter(k => !keys.includes(k)); });
+  keys.forEach(k => { if(!yd.assign[side].includes(k)) yd.assign[side].push(k); });
+  yd.actions.push({ t:'add', side, keys:[...keys], prior });
+  refreshAfterChange();
+}
+function unassignKey(key){
+  const yd = yearData();
+  const s = sideOf(key);
+  if(!s) return;
+  yd.assign[s] = yd.assign[s].filter(k => k !== key);
+  yd.actions.push({ t:'remove', side:s, key });
+  refreshAfterChange();
+}
+function refreshAfterChange(){
+  refreshCountryStyles();
+  renderChips();
+  save();
+}
 
-  const citiesLayer = L.layerGroup().addTo(map);
+/* ==================== СЛОИ РИСУНков ==================== */
+const drawLayer = L.layerGroup().addTo(map);   // постоянные рисунки
+const tempLayer = L.layerGroup().addTo(map);   // временные (в процессе)
 
-  function renderCities() {
-    citiesLayer.clearLayers();
-    const z = map.getZoom();
-    bigCities.forEach(city => {
-      if (z < city.minZoom) return;
-      const isBig = city.size === 'big';
-      const dotSize = isBig ? 10 : 7;
-      const fontSize = isBig ? 13 : 12;
-      const icon = L.divIcon({
-        className: 'hub-marker',
-        html:
-          '<div style="position:relative;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;pointer-events:none;">' +
-            '<div style="width:' + dotSize + 'px;height:' + dotSize + 'px;border-radius:50%;background:#fff;border:2px solid #333;box-shadow:0 0 6px rgba(0,0,0,0.8),0 0 2px #fff;"></div>' +
-            '<div style="font-family:-apple-system,\'Segoe UI\',Roboto,sans-serif;font-size:' + fontSize + 'px;font-weight:600;color:#fff;text-shadow:0 0 3px #000,0 0 6px #000,0 1px 2px #000;white-space:nowrap;margin-top:2px;">' + city.name + '</div>' +
-          '</div>',
-        iconSize: [0, 0],
-        iconAnchor: [0, 0]
-      });
-      L.marker(city.coords, { icon, interactive: false }).addTo(citiesLayer);
-    });
+function arrowHeadLatLngs(from, to, weight){
+  const p1 = map.latLngToContainerPoint(from);
+  const p2 = map.latLngToContainerPoint(to);
+  const ang = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+  const s = 8 + weight * 2.2;
+  const tip = p2;
+  const l = L.point(tip.x - s * Math.cos(ang - Math.PI/6), tip.y - s * Math.sin(ang - Math.PI/6));
+  const r = L.point(tip.x - s * Math.cos(ang + Math.PI/6), tip.y - s * Math.sin(ang + Math.PI/6));
+  return [map.containerPointToLatLng(tip), map.containerPointToLatLng(l), map.containerPointToLatLng(r)];
+}
+function renderDrawings(){
+  drawLayer.clearLayers();
+  for(const d of yearData().drawings){
+    if(d.type === 'pencil'){
+      L.polyline(d.pts, { pane:'drawPane', color:d.color, weight:d.weight, lineCap:'round', lineJoin:'round' }).addTo(drawLayer);
+    } else if(d.type === 'attack'){
+      const from = L.latLng(d.from), to = L.latLng(d.to);
+      L.polyline([from, to], { pane:'drawPane', color:d.color, weight:d.weight }).addTo(drawLayer);
+      L.polygon(arrowHeadLatLngs(from, to, d.weight), { pane:'drawPane', color:d.color, weight:1, fillColor:d.color, fillOpacity:1 }).addTo(drawLayer);
+    } else if(d.type === 'advance'){
+      L.polyline(d.pts, { pane:'drawPane', color:d.color, weight:d.weight, opacity:.45, lineCap:'round', lineJoin:'round' }).addTo(drawLayer);
+      L.polyline(d.pts, { pane:'drawPane', color:'#fff', weight:1.2, opacity:.6, dashArray:'6 8' }).addTo(drawLayer);
+    }
   }
-
-  map.on('zoomend', renderCities);
-  renderCities();
-
-  // ---------- ПАНЕЛЬ ----------
-  const panel = document.getElementById('panel');
-  const panelOpen = document.getElementById('panelOpen');
-  const panelClose = document.getElementById('panelClose');
-
-  panelClose.addEventListener('click', () => {
-    panel.classList.add('hidden');
-    panelOpen.classList.add('visible');
-  });
-  panelOpen.addEventListener('click', () => {
-    panel.classList.remove('hidden');
-    panelOpen.classList.remove('visible');
-  });
-
-  // ---------- СЛАЙДЕР ГОДА ----------
-  const yearSlider = document.getElementById('yearSlider');
-  const yearDisplay = document.getElementById('yearDisplay');
-  const yearPrev = document.getElementById('yearPrev');
-  const yearNext = document.getElementById('yearNext');
-  const statsYear = document.getElementById('statsYear');
-  let currentYear = 2026;
-
-  yearSlider.addEventListener('input', () => {
-    currentYear = parseInt(yearSlider.value, 10);
-    yearDisplay.textContent = currentYear;
-    statsYear.textContent = currentYear;
-    window.dispatchEvent(new CustomEvent('year:changed', { detail: currentYear }));
-  });
-
-  yearPrev.addEventListener('click', () => {
-    yearSlider.value = Math.max(1950, parseInt(yearSlider.value, 10) - 1);
-    yearSlider.dispatchEvent(new Event('input'));
-  });
-  yearNext.addEventListener('click', () => {
-    yearSlider.value = Math.min(2026, parseInt(yearSlider.value, 10) + 1);
-    yearSlider.dispatchEvent(new Event('input'));
-  });
-
-  window.__map = map;
-  window.__countriesLayer = countriesLayer;
-  window.__currentYear = () => currentYear;
+}
+function addDrawing(d){
+  d.id = nextId();
+  yearData().drawings.push(d);
+  yearData().actions.push({ t:'draw', id:d.id });
+  renderDrawings();
+  save();
+}
 </script>
+
 <script>
-  // ============================================================
-  // ЧАСТЬ 3 — стороны, поиск, аннексия, цвета, режимы
-  // ============================================================
+/* ==================== ИНСТРУМЕНТЫ (capture-обработчики, без map.on) ==================== */
+let activeTool = 'pointer';
+let drag = null;          // {tool, pts:[], line}
+let attackStart = null;   // L.LatLng первого клика
+let attackMarker = null;
 
-  const COLORS = { A: '#e63946', B: '#457b9d' };
+function setTool(name){
+  activeTool = name;
+  document.body.dataset.tool = name;
+  document.querySelectorAll('.tool-btn').forEach(b => b.classList.toggle('active', b.dataset.tool === name));
+  attackStart = null;
+  tempLayer.clearLayers();
+  finishDragSilent();
+}
+document.querySelectorAll('.tool-btn').forEach(b => b.addEventListener('click', () => setTool(b.dataset.tool)));
 
-  const sides = {
-    A: { name: 'Сторона А', countries: [], color: COLORS.A },
-    B: { name: 'Сторона Б', countries: [], color: COLORS.B }
-  };
-  let activeSide = 'A';
+function finishDragSilent(){ drag = null; tempLayer.clearLayers(); }
 
-  let pencilColor = '#8b6cff';
-  let pencilThickness = 3;
-  let attackColor = '#ffaa33';
-  let attackThickness = 3;
+/* ЕДИНЫЙ capture-обработчик ЛКМ для всех инструментов рисования */
+document.addEventListener('mousedown', e => {
+  if(e.button !== 0) return;
+  if(!e.target.closest('#map')) return;              // панель/UI не трогаем
+  if(activeTool === 'pointer') return;
+  e.preventDefault();
+  e.stopPropagation();
+  if(e.stopImmediatePropagation) e.stopImmediatePropagation();
+  const ll = map.mouseEventToLatLng(e);
+  switch(activeTool){
+    case 'annex':   doAnnex(ll); break;
+    case 'lasso':   startDrag('lasso', ll, { color:'#ffffff', weight:1.5, dashArray:'5 5' }); break;
+    case 'pencil':  startDrag('pencil', ll, { color:val('pencilColor'), weight:+val('pencilWeight'), lineCap:'round' }); break;
+    case 'attack':  doAttackClick(ll); break;
+    case 'advance': startDrag('advance', ll, { color:state.sides[activeSide].color, weight:+val('advanceWeight'), opacity:.45, lineCap:'round' }); break;
+  }
+}, true);
 
-  const STORAGE_KEY = 'x3led-map-v6';
+function startDrag(tool, ll, style){
+  drag = { tool, pts:[ll], line: L.polyline([ll], Object.assign({ pane:'tempPane' }, style)).addTo(tempLayer) };
+}
 
-  function loadState() {
+document.addEventListener('mousemove', e => {
+  if(!drag) return;
+  const ll = map.mouseEventToLatLng(e);
+  const last = drag.pts[drag.pts.length - 1];
+  if(!last || map.latLngToContainerPoint(last).distanceTo(map.latLngToContainerPoint(ll)) > 3){
+    drag.pts.push(ll);
+    drag.line.setLatLngs(drag.pts);
+  }
+});
+
+document.addEventListener('mouseup', e => {
+  if(e.button !== 0 || !drag) return;
+  const d = drag; drag = null; tempLayer.clearLayers();
+  const pts = d.pts;
+  if(d.tool === 'lasso'){
+    if(pts.length < 3) return;
+    const ring = pts.map(p => [p.lng, p.lat]);
+    ring.push(ring[0]);
+    let poly;
+    try { poly = turf.polygon([ring]); } catch(err){ return; }
+    const found = [];
+    for(const f of geo.features){
+      try { if(turf.booleanIntersects(poly, f)) found.push(f.properties.ADM0_A3); } catch(err){}
+    }
+    /* ФИКС: найденные страны присваиваются АКТИВНОЙ стороне и сразу
+       перекрашиваются в её цвет через assignKeys -> refreshCountryStyles */
+    if(found.length) assignKeys(found, activeSide);
+  } else if(d.tool === 'pencil'){
+    if(pts.length < 2) return;
+    addDrawing({ type:'pencil', color:val('pencilColor'), weight:+val('pencilWeight'),
+                 pts: pts.map(p => [p.lat, p.lng]) });
+  } else if(d.tool === 'advance'){
+    if(pts.length < 2) return;
+    addDrawing({ type:'advance', color:state.sides[activeSide].color, weight:+val('advanceWeight'),
+                 pts: pts.map(p => [p.lat, p.lng]) });
+  }
+});
+
+/* Аннексия кликом */
+function doAnnex(ll){
+  const f = findCountryAt(ll);
+  if(!f) return;
+  const key = f.properties.ADM0_A3;
+  if(sideOf(key) === activeSide) unassignKey(key);   // повторный клик — снять
+  else assignKeys([key], activeSide);
+}
+
+/* Линия атаки — 2 клика */
+function doAttackClick(ll){
+  if(!attackStart){
+    attackStart = ll;
+    attackMarker = L.circleMarker(ll, { pane:'tempPane', radius:5, color:val('attackColor'), weight:2, fillColor:val('attackColor'), fillOpacity:.9 }).addTo(tempLayer);
+  } else {
+    addDrawing({ type:'attack', color:val('attackColor'), weight:+val('attackWeight'),
+                 from:[attackStart.lat, attackStart.lng], to:[ll.lat, ll.lng] });
+    attackStart = null;
+    tempLayer.clearLayers();
+  }
+}
+
+function val(id){ return document.getElementById(id).value; }
+
+/* ==================== АКТИВНАЯ СТОРОНА ==================== */
+function setActiveSide(s){
+  activeSide = s;
+  document.getElementById('sideA').classList.toggle('active', s === 'A');
+  document.getElementById('sideB').classList.toggle('active', s === 'B');
+}
+document.getElementById('sideA').addEventListener('click', () => setActiveSide('A'));
+document.getElementById('sideB').addEventListener('click', () => setActiveSide('B'));
+
+/* ==================== ЦВЕТА СТОРОН ==================== */
+function bindSideColor(side){
+  const inp = document.getElementById('color' + side);
+  inp.value = state.sides[side].color;
+  document.getElementById('dot' + side).style.background = state.sides[side].color;
+  inp.addEventListener('input', () => {
+    state.sides[side].color = inp.value;
+    document.getElementById('dot' + side).style.background = inp.value;
+    refreshCountryStyles();   // перекрашиваем все страны стороны
+    save();
+  });
+}
+bindSideColor('A'); bindSideColor('B');
+
+/* ==================== ПОИСК СТРАН + ЧИПЫ ==================== */
+function bindSearch(side){
+  const input = document.getElementById('search' + side);
+  const list = document.getElementById('ac' + side);
+  function show(q){
+    q = q.trim().toLowerCase();
+    list.innerHTML = '';
+    if(!q){ list.style.display = 'none'; return; }
+    const matches = countryList.filter(c => c.ru.toLowerCase().includes(q) || c.en.toLowerCase().includes(q)).slice(0, 10);
+    if(!matches.length){ list.style.display = 'none'; return; }
+    matches.forEach(c => {
+      const div = document.createElement('div');
+      div.textContent = c.ru;
+      div.addEventListener('mousedown', ev => { ev.preventDefault(); pick(c); });
+      list.appendChild(div);
+    });
+    list.style.display = 'block';
+  }
+  function pick(c){
+    assignKeys([c.key], side);
+    input.value = '';
+    list.style.display = 'none';
+  }
+  input.addEventListener('input', () => show(input.value));
+  input.addEventListener('keydown', e => {
+    if(e.key === 'Enter' && list.firstChild){ e.preventDefault(); list.firstChild.dispatchEvent(new Event('mousedown')); }
+    if(e.key === 'Escape') list.style.display = 'none';
+  });
+  input.addEventListener('blur', () => setTimeout(() => list.style.display = 'none', 150));
+  input.addEventListener('focus', () => show(input.value));
+}
+bindSearch('A'); bindSearch('B');
+
+function renderChips(){
+  const yd = yearData();
+  ['A','B'].forEach(side => {
+    const box = document.getElementById('chips' + side);
+    box.innerHTML = '';
+    yd.assign[side].forEach(key => {
+      const c = byKey[key];
+      if(!c) return;
+      const chip = document.createElement('span');
+      chip.className = 'chip';
+      chip.style.background = state.sides[side].color;
+      chip.textContent = c.ru;
+      const x = document.createElement('button');
+      x.textContent = '✕';
+      x.addEventListener('click', () => unassignKey(key));
+      chip.appendChild(x);
+      box.appendChild(chip);
+    });
+  });
+}
+
+/* ==================== ДЕЙСТВИЯ ==================== */
+document.getElementById('undoBtn').addEventListener('click', () => {
+  const yd = yearData();
+  const a = yd.actions.pop();
+  if(!a) return;
+  if(a.t === 'add'){
+    a.keys.forEach(k => {
+      yd.assign[a.side] = yd.assign[a.side].filter(x => x !== k);
+      const p = a.prior[k];
+      if(p && !yd.assign[p].includes(k)) yd.assign[p].push(k);
+    });
+  } else if(a.t === 'remove'){
+    if(!yd.assign[a.side].includes(a.key)) yd.assign[a.side].push(a.key);
+  } else if(a.t === 'draw'){
+    yd.drawings = yd.drawings.filter(d => d.id !== a.id);
+    renderDrawings();
+  }
+  refreshAfterChange();
+});
+document.getElementById('clearYearBtn').addEventListener('click', () => {
+  if(!confirm('Удалить все страны и рисунки за ' + state.currentYear + ' год?')) return;
+  state.years[state.currentYear] = { assign:{A:[],B:[]}, drawings:[], actions:[] };
+  renderDrawings();
+  refreshAfterChange();
+});
+
+/* ==================== СЛАЙДЕР ГОДА ==================== */
+const yearSlider = document.getElementById('yearSlider');
+const yearVal = document.getElementById('yearVal');
+yearSlider.value = state.currentYear;
+yearVal.textContent = state.currentYear;
+yearSlider.addEventListener('input', () => {
+  state.currentYear = +yearSlider.value;
+  yearVal.textContent = yearSlider.value;
+  renderDrawings();
+  refreshAfterChange();
+});
+
+/* ==================== ЭКСПОРТ / ИМПОРТ ==================== */
+document.getElementById('exportBtn').addEventListener('click', () => {
+  const blob = new Blob([JSON.stringify(state, null, 2)], { type:'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'political-map-' + state.currentYear + '.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+const importFile = document.getElementById('importFile');
+document.getElementById('importBtn').addEventListener('click', () => importFile.click());
+importFile.addEventListener('change', () => {
+  const file = importFile.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) return JSON.parse(raw);
-    } catch (e) {}
-    return {};
-  }
-
-  function saveState() {
-    const state = {
-      sides, activeSide,
-      pencilColor, pencilThickness,
-      attackColor, attackThickness,
-      years: window.__yearsData || {}
-    };
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
-  }
-
-  const saved = loadState();
-  window.__yearsData = saved.years || {};
-
-  if (saved.sides) {
-    sides.A.countries = saved.sides.A?.countries || [];
-    sides.B.countries = saved.sides.B?.countries || [];
-    if (saved.sides.A?.color) sides.A.color = saved.sides.A.color;
-    if (saved.sides.B?.color) sides.B.color = saved.sides.B.color;
-    COLORS.A = sides.A.color;
-    COLORS.B = sides.B.color;
-  }
-  if (saved.activeSide) activeSide = saved.activeSide;
-  if (saved.pencilColor) pencilColor = saved.pencilColor;
-  if (saved.pencilThickness) pencilThickness = saved.pencilThickness;
-  if (saved.attackColor) attackColor = saved.attackColor;
-  if (saved.attackThickness) attackThickness = saved.attackThickness;
-
-  function ensureYear(year) {
-    if (!window.__yearsData[year]) {
-      window.__yearsData[year] = { regions: [], lines: [], attacks: [] };
-    }
-    const y = window.__yearsData[year];
-    if (!y.regions) y.regions = [];
-    if (!y.lines) y.lines = [];
-    if (!y.attacks) y.attacks = [];
-    return y;
-  }
-
-  const regionsLayer = L.featureGroup().addTo(window.__map);
-  const linesLayer = L.featureGroup().addTo(window.__map);
-  const attacksLayer = L.featureGroup().addTo(window.__map);
-
-  // ---------- ЭЛЕМЕНТЫ UI ----------
-  const colorAInput = document.getElementById('colorA');
-  const colorBInput = document.getElementById('colorB');
-  const pencilColorInput = document.getElementById('pencilColor');
-  const pencilColorWrap = document.getElementById('pencilColorWrap');
-  const pencilThicknessInput = document.getElementById('pencilThickness');
-  const pencilThicknessVal = document.getElementById('pencilThicknessVal');
-  const attackColorInput = document.getElementById('attackColor');
-  const attackColorWrap = document.getElementById('attackColorWrap');
-  const attackThicknessInput = document.getElementById('attackThickness');
-  const attackThicknessVal = document.getElementById('attackThicknessVal');
-
-  colorAInput.value = sides.A.color;
-  colorBInput.value = sides.B.color;
-  document.getElementById('sideDotA').style.background = sides.A.color;
-  document.getElementById('sideDotA').style.color = sides.A.color;
-  document.getElementById('sideDotB').style.background = sides.B.color;
-  document.getElementById('sideDotB').style.color = sides.B.color;
-
-  pencilColorInput.value = pencilColor;
-  pencilColorWrap.style.background = pencilColor;
-  pencilThicknessInput.value = pencilThickness;
-  pencilThicknessVal.textContent = pencilThickness;
-
-  attackColorInput.value = attackColor;
-  attackColorWrap.style.background = attackColor;
-  attackThicknessInput.value = attackThickness;
-  attackThicknessVal.textContent = attackThickness;
-
-  function updateSideUI() {
-    document.getElementById('sideCountA').textContent = sides.A.countries.length;
-    document.getElementById('sideCountB').textContent = sides.B.countries.length;
-
-    const listA = document.getElementById('sideListA');
-    listA.innerHTML = sides.A.countries.length === 0
-      ? '<span class="empty-hint">Добавь страны через поиск</span>'
-      : sides.A.countries.map(c =>
-          '<span class="country-chip">' + c + '<span class="remove" data-remove-side="A" data-country="' + c + '">×</span></span>'
-        ).join('');
-
-    const listB = document.getElementById('sideListB');
-    listB.innerHTML = sides.B.countries.length === 0
-      ? '<span class="empty-hint">Добавь страны через поиск</span>'
-      : sides.B.countries.map(c =>
-          '<span class="country-chip">' + c + '<span class="remove" data-remove-side="B" data-country="' + c + '">×</span></span>'
-        ).join('');
-
-    document.querySelectorAll('[data-remove-side]').forEach(el => {
-      el.addEventListener('click', e => {
-        e.stopPropagation();
-        const side = el.dataset.removeSide;
-        const country = el.dataset.country;
-        sides[side].countries = sides[side].countries.filter(c => c !== country);
-        updateSideUI();
-        repaintCountries();
-        saveState();
-      });
-    });
-
-    document.getElementById('activeSideLabel').textContent = sides[activeSide].name;
-    const dot = document.getElementById('activeSideDot');
-    dot.style.background = sides[activeSide].color;
-    dot.style.color = sides[activeSide].color;
-
-    document.getElementById('sideBlockA').classList.toggle('active', activeSide === 'A');
-    document.getElementById('sideBlockB').classList.toggle('active', activeSide === 'B');
-  }
-
-  document.querySelectorAll('[data-side-select]').forEach(el => {
-    el.addEventListener('click', () => {
-      activeSide = el.dataset.sideSelect;
-      updateSideUI();
-      saveState();
-    });
-  });
-
-  document.getElementById('activeSideBtn').addEventListener('click', () => {
-    activeSide = activeSide === 'A' ? 'B' : 'A';
-    updateSideUI();
-    saveState();
-  });
-
-  colorAInput.addEventListener('input', e => {
-    sides.A.color = e.target.value;
-    COLORS.A = e.target.value;
-    document.getElementById('sideDotA').style.background = e.target.value;
-    document.getElementById('sideDotA').style.color = e.target.value;
-    repaintCountries();
-    renderYear(window.__currentYear());
-    saveState();
-  });
-
-  colorBInput.addEventListener('input', e => {
-    sides.B.color = e.target.value;
-    COLORS.B = e.target.value;
-    document.getElementById('sideDotB').style.background = e.target.value;
-    document.getElementById('sideDotB').style.color = e.target.value;
-    repaintCountries();
-    renderYear(window.__currentYear());
-    saveState();
-  });
-
-  pencilColorInput.addEventListener('input', e => {
-    pencilColor = e.target.value;
-    pencilColorWrap.style.background = e.target.value;
-    saveState();
-  });
-
-  pencilThicknessInput.addEventListener('input', e => {
-    pencilThickness = parseInt(e.target.value, 10);
-    pencilThicknessVal.textContent = pencilThickness;
-    saveState();
-  });
-
-  attackColorInput.addEventListener('input', e => {
-    attackColor = e.target.value;
-    attackColorWrap.style.background = e.target.value;
-    saveState();
-  });
-
-  attackThicknessInput.addEventListener('input', e => {
-    attackThickness = parseInt(e.target.value, 10);
-    attackThicknessVal.textContent = attackThickness;
-    saveState();
-  });
-
-  let allCountriesNames = [];
-
-  function buildCountryIndex() {
-    if (!window.__countriesLayer) return;
-    allCountriesNames = [];
-    window.__countriesLayer.eachLayer(layer => {
-      const name = layer.feature.properties.__nameRu;
-      if (name) allCountriesNames.push(name);
-    });
-    allCountriesNames.sort((a, b) => a.localeCompare(b, 'ru'));
-    console.log('Индекс стран:', allCountriesNames.length);
-  }
-
-  function setupSearch(sideKey) {
-    const input = document.getElementById('search' + sideKey);
-    const results = document.getElementById('results' + sideKey);
-
-    input.addEventListener('input', () => {
-      const q = input.value.trim().toLowerCase();
-      if (!q) { results.classList.remove('show'); return; }
-
-      const matches = allCountriesNames
-        .filter(n => n.toLowerCase().includes(q))
-        .filter(n => !sides[sideKey].countries.includes(n))
-        .slice(0, 30);
-
-      results.innerHTML = matches.length === 0
-        ? '<div class="search-item empty">Не найдено</div>'
-        : matches.map(n => '<div class="search-item" data-country="' + n + '">' + n + '</div>').join('');
-
-      results.classList.add('show');
-
-      results.querySelectorAll('.search-item:not(.empty)').forEach(item => {
-        item.addEventListener('click', () => {
-          const country = item.dataset.country;
-          if (!sides[sideKey].countries.includes(country)) {
-            sides[sideKey].countries.push(country);
-          }
-          input.value = '';
-          results.classList.remove('show');
-          updateSideUI();
-          repaintCountries();
-          saveState();
-        });
-      });
-    });
-
-    input.addEventListener('blur', () => {
-      setTimeout(() => results.classList.remove('show'), 200);
-    });
-  }
-
-  setupSearch('A');
-  setupSearch('B');
-
-  function repaintCountries() {
-    if (!window.__countriesLayer) return;
-    window.__countriesLayer.eachLayer(layer => {
-      const name = layer.feature.properties.__nameRu;
-
-      if (sides.A.countries.includes(name)) {
-        const style = { color: sides.A.color, fillColor: sides.A.color, fillOpacity: 0.4, weight: 2, opacity: 1 };
-        layer.setStyle(style);
-        layer.__customStyle = style;
-      } else if (sides.B.countries.includes(name)) {
-        const style = { color: sides.B.color, fillColor: sides.B.color, fillOpacity: 0.4, weight: 2, opacity: 1 };
-        layer.setStyle(style);
-        layer.__customStyle = style;
-      } else {
-        layer.setStyle(layer.__baseStyle);
-        layer.__customStyle = null;
-      }
-    });
-  }
-
-  // ---------- РЕЖИМЫ ----------
-  let currentMode = null;
-
-  const btnAnnex = document.getElementById('btnAnnex');
-  const btnLasso = document.getElementById('btnLasso');
-  const btnPencil = document.getElementById('btnPencil');
-  const btnAttack = document.getElementById('btnAttack');
-  const btnAdvance = document.getElementById('btnAdvance');
-  const mapContainer = document.getElementById('map');
-
-  function setMode(mode) {
-    [btnAnnex, btnLasso, btnPencil, btnAttack, btnAdvance].forEach(b => {
-      if (b) b.classList.remove('active');
-    });
-    mapContainer.classList.remove('drawing');
-
-    if (currentMode === mode) {
-      currentMode = null;
-      return;
-    }
-
-    currentMode = mode;
-
-    if (mode === 'annex') {
-      btnAnnex.classList.add('active');
-    } else if (mode === 'lasso') {
-      btnLasso.classList.add('active');
-      mapContainer.classList.add('drawing');
-    } else if (mode === 'pencil') {
-      btnPencil.classList.add('active');
-      mapContainer.classList.add('drawing');
-    } else if (mode === 'attack') {
-      btnAttack.classList.add('active');
-    } else if (mode === 'advance') {
-      btnAdvance.classList.add('active');
-      mapContainer.classList.add('drawing');
-    }
-  }
-
-  btnAnnex.addEventListener('click', () => setMode('annex'));
-  btnLasso.addEventListener('click', () => setMode('lasso'));
-  btnPencil.addEventListener('click', () => setMode('pencil'));
-  btnAttack.addEventListener('click', () => setMode('attack'));
-  btnAdvance.addEventListener('click', () => setMode('advance'));
-
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') {
-      setMode(null);
-      currentMode = null;
-      mapContainer.classList.remove('drawing');
-    }
-  });
-
-  function attachAnnexHandler() {
-    if (!window.__countriesLayer) return;
-    window.__countriesLayer.eachLayer(layer => {
-      layer.off('click.annex');
-      layer.on('click.annex', e => {
-        if (currentMode !== 'annex') return;
-        L.DomEvent.stopPropagation(e);
-
-        const name = layer.feature.properties.__nameRu;
-        if (!name) return;
-
-        const other = activeSide === 'A' ? 'B' : 'A';
-        sides[other].countries = sides[other].countries.filter(c => c !== name);
-
-        if (!sides[activeSide].countries.includes(name)) {
-          sides[activeSide].countries.push(name);
-        }
-
-        updateSideUI();
-        repaintCountries();
-        saveState();
-      });
-    });
-  }
-
-  window.addEventListener('countries:loaded', () => {
-    buildCountryIndex();
-    repaintCountries();
-    attachAnnexHandler();
-  });
-
-  if (window.__countriesData) {
-    buildCountryIndex();
-    repaintCountries();
-    attachAnnexHandler();
-  }
-
-  function updateStats() {
-    const y = ensureYear(window.__currentYear());
-    document.getElementById('statRegions').textContent = y.regions.length;
-    document.getElementById('statLines').textContent = y.lines.length;
-    document.getElementById('statAttacks').textContent = y.attacks.length;
-  }
-
-  function renderYear(year) {
-    regionsLayer.clearLayers();
-    linesLayer.clearLayers();
-    attacksLayer.clearLayers();
-
-    const y = ensureYear(year);
-
-    y.regions.forEach((r, idx) => {
-      const c = r.color || COLORS[r.side];
-      const poly = L.geoJSON(r.geometry, {
-        style: { color: c, weight: 3, fillColor: c, fillOpacity: 0.4 }
-      }).addTo(regionsLayer);
-
-      poly.eachLayer(l => {
-        l.bindPopup('<div style="font-family:inherit;font-size:13px;color:#333;"><b>Регион</b><br><button onclick="window.__delRegion(' + idx + ')" style="margin-top:6px;padding:4px 10px;cursor:pointer;background:#e63946;color:#fff;border:none;border-radius:4px;">Удалить</button></div>');
-      });
-    });
-
-    y.lines.forEach((line, idx) => {
-      L.polyline(line.coords, {
-        color: line.color || pencilColor,
-        weight: line.thickness || pencilThickness,
-        opacity: 0.95,
-        lineCap: 'round',
-        lineJoin: 'round'
-      }).addTo(linesLayer).bindPopup(
-        '<div style="font-family:inherit;font-size:13px;color:#333;"><b>Линия</b><br><button onclick="window.__delLine(' + idx + ')" style="margin-top:6px;padding:4px 10px;cursor:pointer;background:#e63946;color:#fff;border:none;border-radius:4px;">Удалить</button></div>'
-      );
-    });
-
-    y.attacks.forEach((a, idx) => {
-      const c = a.color || attackColor;
-      L.polyline(a.coords, {
-        color: c,
-        weight: a.thickness || attackThickness,
-        dashArray: '10 6',
-        opacity: 1
-      }).addTo(attacksLayer).bindPopup(
-        '<div style="font-family:inherit;font-size:13px;color:#333;"><b>Линия атаки</b><br><button onclick="window.__delAttack(' + idx + ')" style="margin-top:6px;padding:4px 10px;cursor:pointer;background:#e63946;color:#fff;border:none;border-radius:4px;">Удалить</button></div>'
-      );
-
-      if (a.coords.length >= 2) {
-        const last = a.coords[a.coords.length - 1];
-        const prev = a.coords[a.coords.length - 2];
-        const angle = Math.atan2(last[0] - prev[0], last[1] - prev[1]) * (180 / Math.PI);
-        const arrow = L.divIcon({
-          className: 'attack-arrow',
-          html: '<div style="transform: rotate(' + (-angle + 90) + 'deg);color:' + c + ';font-size:26px;font-weight:bold;text-shadow:0 0 10px ' + c + ', 0 0 4px #000;line-height:1;margin-top:-13px;margin-left:-13px;">&#10148;</div>',
-          iconSize: [26, 26], iconAnchor: [13, 13]
-        });
-        L.marker([last[0], last[1]], { icon: arrow, interactive: false }).addTo(attacksLayer);
-      }
-    });
-
-    updateStats();
-  }
-
-  window.__delRegion = function(idx) {
-    const y = ensureYear(window.__currentYear());
-    y.regions.splice(idx, 1);
-    saveState();
-    renderYear(window.__currentYear());
-    window.__map.closePopup();
+      const obj = JSON.parse(reader.result);
+      if(!obj.sides || !obj.years) throw new Error('неверный формат файла');
+      state = obj;
+      yearSlider.value = state.currentYear;
+      yearVal.textContent = state.currentYear;
+      document.getElementById('colorA').value = state.sides.A.color;
+      document.getElementById('colorB').value = state.sides.B.color;
+      document.getElementById('dotA').style.background = state.sides.A.color;
+      document.getElementById('dotB').style.background = state.sides.B.color;
+      renderDrawings();
+      refreshAfterChange();
+      alert('Карта импортирована');
+    } catch(err){ alert('Ошибка импорта: ' + err.message); }
   };
-  window.__delLine = function(idx) {
-    const y = ensureYear(window.__currentYear());
-    y.lines.splice(idx, 1);
-    saveState();
-    renderYear(window.__currentYear());
-    window.__map.closePopup();
-  };
-  window.__delAttack = function(idx) {
-    const y = ensureYear(window.__currentYear());
-    y.attacks.splice(idx, 1);
-    saveState();
-    renderYear(window.__currentYear());
-    window.__map.closePopup();
-  };
+  reader.readAsText(file);
+  importFile.value = '';
+});
 
-  document.getElementById('btnClear').addEventListener('click', () => {
-    if (!confirm('Удалить ВСЁ за ' + window.__currentYear() + ' год? Включая аннексии.')) return;
-    window.__yearsData[window.__currentYear()] = { regions: [], lines: [], attacks: [] };
-    sides.A.countries = [];
-    sides.B.countries = [];
-    updateSideUI();
-    repaintCountries();
-    saveState();
-    renderYear(window.__currentYear());
-  });
+/* ==================== СВОРАЧИВАНИЕ ПАНЕЛИ ==================== */
+const collapseBtn = document.getElementById('collapseBtn');
+collapseBtn.addEventListener('click', () => {
+  document.body.classList.toggle('panel-collapsed');
+  collapseBtn.textContent = document.body.classList.contains('panel-collapsed') ? '▶' : '◀';
+});
 
-  document.getElementById('btnUndo').addEventListener('click', () => {
-    const y = ensureYear(window.__currentYear());
-    if (y.attacks.length > 0) {
-      y.attacks.pop();
-    } else if (y.lines.length > 0) {
-      y.lines.pop();
-    } else if (y.regions.length > 0) {
-      y.regions.pop();
-    } else {
-      alert('Нечего отменять');
-      return;
-    }
-    saveState();
-    renderYear(window.__currentYear());
-  });
-
-  window.addEventListener('year:changed', () => {
-    renderYear(window.__currentYear());
-  });
-
-  updateSideUI();
-  renderYear(window.__currentYear());
-
-  window.__sides = sides;
-  window.__activeSide = () => activeSide;
-  window.__COLORS = COLORS;
-  window.__pencilColor = () => pencilColor;
-  window.__pencilThickness = () => pencilThickness;
-  window.__attackColor = () => attackColor;
-  window.__attackThickness = () => attackThickness;
-  window.__saveState = saveState;
-  window.__renderYear = renderYear;
-  window.__setMode = setMode;
-  window.__currentMode = () => currentMode;
-  window.__regionsLayer = regionsLayer;
-  window.__linesLayer = linesLayer;
-  window.__attacksLayer = attacksLayer;
-  window.__ensureYear = ensureYear;
-  window.__updateStats = updateStats;
+/* ==================== СТАРТ ==================== */
+renderDrawings();
+refreshCountryStyles();
 </script>
-<script>
-  // ============================================================
-  // ЧАСТЬ 4 — рисование через pointerdown (ЛКМ точно работает)
-  // ============================================================
-
-  const map = window.__map;
-  const mapContainer = document.getElementById('map');
-  const regionsLayer = window.__regionsLayer;
-
-  let autoPanInterval = null;
-
-  function startAutoPan(clientX, clientY) {
-    stopAutoPan();
-    autoPanInterval = setInterval(() => {
-      const rect = mapContainer.getBoundingClientRect();
-      const margin = 60;
-      let dx = 0, dy = 0;
-      if (clientX < rect.left + margin) dx = -10;
-      if (clientX > rect.right - margin) dx = 10;
-      if (clientY < rect.top + margin) dy = -10;
-      if (clientY > rect.bottom - margin) dy = 10;
-      if (dx !== 0 || dy !== 0) {
-        map.panBy([dx, dy], { animate: false });
-      }
-    }, 30);
-  }
-
-  function stopAutoPan() {
-    if (autoPanInterval) {
-      clearInterval(autoPanInterval);
-      autoPanInterval = null;
-    }
-  }
-
-  // ---------- РИСОВАНИЕ (pointer events) ----------
-  let isDrawing = false;
-  let drawType = null; // 'lasso' | 'pencil' | 'advance'
-  let drawPoints = [];
-  let tempLine = null;
-
-  function latLngFromEvent(e) {
-    const rect = mapContainer.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    const point = L.point(x, y);
-    return map.containerPointToLatLng(point);
-  }
-
-  function beginDraw(e) {
-    if (e.button !== 0) return;
-    const mode = window.__currentMode();
-
-    let type = null;
-    if (mode === 'lasso') type = 'lasso';
-    else if (mode === 'pencil') type = 'pencil';
-    else if (mode === 'advance') type = 'advance';
-    else return;
-
-    e.preventDefault();
-    e.stopPropagation();
-
-    isDrawing = true;
-    drawType = type;
-    drawPoints = [latLngFromEvent(e)];
-
-    let color, weight, dashed = false;
-    if (type === 'lasso') {
-      color = window.__COLORS[window.__activeSide()];
-      weight = 3;
-      dashed = true;
-    } else if (type === 'pencil') {
-      color = window.__pencilColor();
-      weight = window.__pencilThickness();
-    } else if (type === 'advance') {
-      color = window.__COLORS[window.__activeSide()];
-      weight = 5;
-    }
-
-    tempLine = L.polyline(drawPoints, {
-      color: color,
-      weight: weight,
-      opacity: 1,
-      dashArray: dashed ? '6 4' : null,
-      lineCap: 'round',
-      lineJoin: 'round'
-    }).addTo(map);
-  }
-
-  function moveDraw(e) {
-    if (!isDrawing) return;
-    const ll = latLngFromEvent(e);
-    drawPoints.push(ll);
-    tempLine.setLatLngs(drawPoints);
-    startAutoPan(e.clientX, e.clientY);
-  }
-
-  function endDraw(e) {
-    if (!isDrawing) return;
-    isDrawing = false;
-    stopAutoPan();
-
-    if (tempLine) {
-      map.removeLayer(tempLine);
-      tempLine = null;
-    }
-
-    if (drawPoints.length < 2) {
-      drawPoints = [];
-      drawType = null;
-      return;
-    }
-
-    if (drawType === 'lasso') {
-      const closed = drawPoints.slice();
-      closed.push(closed[0]);
-
-      const side = window.__activeSide();
-      const color = window.__COLORS[side];
-
-      const geometry = {
-        type: 'Polygon',
-        coordinates: [closed.map(ll => [ll.lng, ll.lat])]
-      };
-
-      const y = window.__ensureYear(window.__currentYear());
-      y.regions.push({ side, color, geometry, isLasso: true });
-
-      window.__saveState();
-      window.__renderYear(window.__currentYear());
-      window.__setMode(null);
-
-    } else if (drawType === 'pencil') {
-      const coords = drawPoints.map(ll => [ll.lat, ll.lng]);
-      const y = window.__ensureYear(window.__currentYear());
-      y.lines.push({
-        color: window.__pencilColor(),
-        thickness: window.__pencilThickness(),
-        coords
-      });
-      window.__saveState();
-      window.__renderYear(window.__currentYear());
-      window.__setMode(null);
-
-    } else if (drawType === 'advance') {
-      const side = window.__activeSide();
-      const color = window.__COLORS[side];
-
-      const leftSide = [];
-      const rightSide = [];
-      const thickness = 0.08;
-
-      for (let i = 0; i < drawPoints.length; i++) {
-        const p = drawPoints[i];
-        const prev = drawPoints[i - 1] || p;
-        const next = drawPoints[i + 1] || p;
-        const dx = next.lng - prev.lng;
-        const dy = next.lat - prev.lat;
-        const len = Math.sqrt(dx * dx + dy * dy) || 1;
-        const nx = -dy / len;
-        const ny = dx / len;
-        leftSide.push([p.lat + ny * thickness, p.lng + nx * thickness]);
-        rightSide.unshift([p.lat - ny * thickness, p.lng - nx * thickness]);
-      }
-
-      const polygonCoords = [...leftSide, ...rightSide, leftSide[0]];
-
-      const geometry = {
-        type: 'Polygon',
-        coordinates: [polygonCoords.map(ll => [ll[1], ll[0]])]
-      };
-
-      const y = window.__ensureYear(window.__currentYear());
-      y.regions.push({ side, color, geometry, isAdvance: true });
-
-      window.__saveState();
-      window.__renderYear(window.__currentYear());
-      window.__setMode(null);
-    }
-
-    drawPoints = [];
-    drawType = null;
-  }
-
-  // ВАЖНО: pointerdown на document с проверкой цели
-  document.addEventListener('pointerdown', e => {
-    // Только ЛКМ
-    if (e.button !== 0) return;
-    // Только если клик по карте (не по панели)
-    if (!mapContainer.contains(e.target)) return;
-    // Если режим рисования активен
-    const mode = window.__currentMode();
-    if (mode === 'lasso' || mode === 'pencil' || mode === 'advance') {
-      beginDraw(e);
-    }
-  });
-
-  document.addEventListener('pointermove', moveDraw);
-  document.addEventListener('pointerup', endDraw);
-  document.addEventListener('pointercancel', endDraw);
-
-  // ---------- ЛИНИЯ АТАКИ (2 клика) ----------
-  let attackStart = null;
-  let attackTempLine = null;
-
-  document.addEventListener('click', e => {
-    if (window.__currentMode() !== 'attack') return;
-    if (!mapContainer.contains(e.target)) return;
-    if (e.button !== 0) return;
-
-    const rect = mapContainer.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    const ll = map.containerPointToLatLng(L.point(x, y));
-
-    if (!attackStart) {
-      attackStart = ll;
-      attackTempLine = L.polyline([attackStart, attackStart], {
-        color: window.__attackColor(),
-        weight: window.__attackThickness(),
-        dashArray: '10 6',
-        opacity: 0.9
-      }).addTo(map);
-    } else {
-      const end = ll;
-      if (attackTempLine) {
-        map.removeLayer(attackTempLine);
-        attackTempLine = null;
-      }
-
-      const coords = [[attackStart.lat, attackStart.lng], [end.lat, end.lng]];
-      const y2 = window.__ensureYear(window.__currentYear());
-      y2.attacks.push({
-        color: window.__attackColor(),
-        thickness: window.__attackThickness(),
-        coords
-      });
-
-      window.__saveState();
-      window.__renderYear(window.__currentYear());
-
-      attackStart = null;
-      window.__setMode(null);
-    }
-  });
-
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') {
-      if (attackTempLine) {
-        map.removeLayer(attackTempLine);
-        attackTempLine = null;
-      }
-      attackStart = null;
-      if (isDrawing) {
-        isDrawing = false;
-        stopAutoPan();
-        if (tempLine) {
-          map.removeLayer(tempLine);
-          tempLine = null;
-        }
-        drawPoints = [];
-        drawType = null;
-      }
-    }
-  });
-
-  window.addEventListener('blur', () => {
-    if (isDrawing) {
-      isDrawing = false;
-      stopAutoPan();
-      if (tempLine) {
-        map.removeLayer(tempLine);
-        tempLine = null;
-      }
-      drawPoints = [];
-      drawType = null;
-    }
-  });
-</script>
-<script>
-  // ============================================================
-  // ЧАСТЬ 5 — экспорт, импорт
-  // ============================================================
-
-  document.getElementById('btnExport').addEventListener('click', () => {
-    const data = {
-      version: 6,
-      exportedAt: new Date().toISOString(),
-      sides: window.__sides,
-      activeSide: window.__activeSide(),
-      pencilColor: window.__pencilColor(),
-      pencilThickness: window.__pencilThickness(),
-      attackColor: window.__attackColor(),
-      attackThickness: window.__attackThickness(),
-      years: window.__yearsData
-    };
-
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'x3led-map-' + new Date().toISOString().slice(0, 10) + '.json';
-    a.click();
-    URL.revokeObjectURL(url);
-  });
-
-  document.getElementById('btnImport').addEventListener('click', () => {
-    document.getElementById('importFile').click();
-  });
-
-  document.getElementById('importFile').addEventListener('change', e => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = ev => {
-      try {
-        const data = JSON.parse(ev.target.result);
-        if (!data.years) throw new Error('Неверный формат файла');
-
-        if (!confirm('Загрузить карту из файла? Текущие данные будут заменены.')) return;
-
-        if (data.sides) {
-          window.__sides.A.countries = data.sides.A?.countries || [];
-          window.__sides.B.countries = data.sides.B?.countries || [];
-          if (data.sides.A?.color) window.__sides.A.color = data.sides.A.color;
-          if (data.sides.B?.color) window.__sides.B.color = data.sides.B.color;
-        }
-
-        window.__yearsData = data.years;
-        window.__saveState();
-        location.reload();
-      } catch (err) {
-        alert('Ошибка загрузки: ' + err.message);
-      }
-    };
-    reader.readAsText(file);
-    e.target.value = '';
-  });
-
-  if (!localStorage.getItem('x3led-map-welcome-v6')) {
-    setTimeout(() => {
-      alert(
-        'Редактор карты:\n\n' +
-        '• Стороны: поиск + цвет по клику на кружок\n' +
-        '• Аннексия: клик по стране\n' +
-        '• Обводка / Карандаш / Продвижение: зажми ЛКМ и веди\n' +
-        '• Линия атаки: 2 клика ЛКМ\n' +
-        '• Отменить последнее — удаляет последнюю фигуру\n' +
-        '• Удалить всё (этот год) — очищает год и стороны\n' +
-        '• ПКМ — двигать карту (ЛКМ никогда не тащит)\n' +
-        '• ESC — отмена'
-      );
-      try { localStorage.setItem('x3led-map-welcome-v6', '1'); } catch (err) {}
-    }, 1500);
-  }
-
-  console.log('%c[Карта готова — v6]', 'color:#8b6cff;font-size:16px;font-weight:bold');
-</script>
-<script>
-  // ============================================================
-  // ЧАСТЬ 6 — финал, закрытие
-  // ============================================================
-
-  // Финальный лог
-  setTimeout(() => {
-    console.log('%c[Всё готово]', 'color:#22ddaa;font-size:14px;font-weight:bold');
-    console.log('Режимы карты: Спутник / Спутник+дороги / OSM карта / Тёмная');
-    console.log('Инструменты: аннексия, обводка, карандаш, атака, продвижение');
-    console.log('Движение: только ПКМ');
-  }, 1000);
-</script>
-
 </body>
 </html>
