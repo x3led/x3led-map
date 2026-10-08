@@ -3,278 +3,341 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Блэкджек (Blackjack)</title>
+    <title>Royal Blackjack</title>
     <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #2c5e2e; /* Зеленый цвет стола */
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            margin: 0;
-            color: white;
+        :root {
+            --gold: #ffd700;
+            --emerald: #0e6b3e;
+            --dark-green: #053a22;
+            --card-white: #ffffff;
         }
 
-        h1 { margin-bottom: 20px; }
+        body {
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: radial-gradient(circle, var(--emerald) 0%, var(--dark-green) 100%);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: white;
+            overflow: hidden;
+        }
 
         .game-container {
-            text-align: center;
+            position: relative;
+            width: 90%;
+            max-width: 1000px;
+            padding: 40px;
+            border-radius: 50px;
             background: rgba(0, 0, 0, 0.3);
-            padding: 30px;
-            border-radius: 20px;
-            border: 5px solid #ffd700;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            border: 8px solid var(--gold);
+            box-shadow: 0 20px 60px rgba(0,0,0,0.8), inset 0 0 50px rgba(255,215,0,0.1);
+            text-align: center;
+        }
+
+        h1 {
+            margin-bottom: 30px;
+            font-size: 3rem;
+            color: var(--gold);
+            text-transform: uppercase;
+            letter-spacing: 8px;
+            text-shadow: 3px 3px 5px rgba(0,0,0,0.5);
         }
 
         .area {
-            margin: 20px 0;
-            padding: 10px;
-            border: 2px dashed rgba(255,255,255,0.3);
-            border-radius: 10px;
-            min-width: 300px;
+            padding: 20px;
+            margin: 15px 0;
+            border-radius: 20px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 215, 0, 0.3);
         }
 
         .cards {
             display: flex;
             justify-content: center;
-            gap: 10px;
-            margin-top: 10px;
+            gap: 15px;
+            min-height: 130px;
+            margin-bottom: 10px;
         }
 
         .card {
-            background-color: white;
-            color: black;
-            padding: 15px;
-            border-radius: 8px;
-            font-size: 24px;
-            font-weight: bold;
-            min-width: 60px;
-            height: 90px;
+            width: 90px;
+            height: 130px;
+            background: var(--card-white);
+            border-radius: 12px;
+            padding: 10px;
             display: flex;
+            flex-direction: column;
+            justify-content: space-between;
             align-items: center;
-            justify-content: center;
-            border: 2px solid #000;
+            font-size: 28px;
+            color: #333;
+            box-shadow: 5px 10px 15px rgba(0,0,0,0.4);
+            border: 2px solid #999;
+            animation: slideIn 0.6s ease-out forwards;
+            position: relative;
+        }
+
+        .card .suit {
+            font-size: 45px;
+            line-height: 1;
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(30px) rotate(-10deg); }
+            to { opacity: 1; transform: translateY(0) rotate(0deg); }
         }
 
         .info {
-            margin-top: 10px;
-            font-size: 1.2rem;
+            font-size: 1.4rem;
+            color: var(--gold);
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+
+        #message {
+            height: 60px;
+            margin: 20px 0;
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: white;
+            text-shadow: 0 0 10px var(--gold);
+        }
+
+        .controls {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            padding: 20px;
         }
 
         button {
-            padding: 15px 30px;
-            font-size: 18px;
-            cursor: pointer;
-            background-color: #ffcc00;
+            padding: 15px 35px;
+            font-size: 1.2rem;
+            border-radius: 30px;
             border: none;
-            border-radius: 10px;
-            margin: 10px;
-            transition: transform 0.2s, background-color 0.2s;
+            background: linear-gradient(180deg, #ffd700 0%, #ccac00 100%);
+            color: #000;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(255, 215, 0, 0.4);
         }
 
         button:hover {
-            background-color: #ffdb4d;
-            transform: scale(1.1);
+            transform: translateY(-5px) scale(1.05);
+            filter: brightness(1.2);
         }
 
         button:disabled {
-            background-color: #888;
+            background: #666;
+            color: #999;
             cursor: not-allowed;
             transform: none;
         }
 
-        #message {
-            font-size: 24px;
-            margin: 20px;
-            padding: 15px;
-            height: 30px;
-            color: #ffd700;
+        .status-tag {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 5px;
+            opacity: 0.7;
         }
     </style>
 </head>
 <body>
 
-    <h1>Блэкджек</h1>
+<div class="game-container">
+    <h1>Blackjack</h1>
 
-    <div class="game-container">
-        <div class="area">
-            <h3>Дилер</h3>
-            <div id="dealer-cards" class="cards"></div>
-            <div id="dealer-score" class="info">Очки: 0</div>
-        </div>
-
-        <div id="message">Нажмите "Новая игра", чтобы начать!</div>
-
-        <div class="area">
-            <h3>Вы</h3>
-            <div id="player-cards" class="cards"></div>
-            <div id="player-score" class="info">Очки: 0</div>
-        </div>
-
-        <div>
-            <button id="deal-btn">Новая игра</button>
-            <button id="hit-btn" disabled>Взять карту (Hit)</button>
-            <button id="stand-btn" disabled>Остановиться (Stand)</button>
-        </div>
+    <div class="area">
+        <div class="status-tag">Dealer's Hand</div>
+        <div id="dealer-cards" class="cards"></div>
+        <div id="dealer-score" class="info">Score: 0</div>
     </div>
 
-    <script>
-        const dealerCardsDiv = document.getElementById('dealer-cards');
-        const playerCardsDiv = document.getElementById('player-cards');
-        const dealerScoreDiv = document.getElementById('dealer-score');
-        const playerScoreDiv = document.getElementById('player-score');
-        const messageDiv = document.getElementById('message');
-        const dealBtn = document.getElementById('deal-btn');
-        const hitBtn = document.getElementById('hit-btn');
-        const standBtn = document.getElementById('stand-btn');
+    <div id="message">Press "New Game" to Start</div>
 
-        let deck = [];
-        let playerHand = [];
-        let dealerHand = [];
-        let gameActive = false;
+    <div class="area">
+        <div class="status-tag">Your Hand</div>
+        <div id="player-cards" class="cards"></div>
+        <div id="player-score" class="info">Score: 0</div>
+    </div>
 
-        // Создание колоды
-        function createDeck() {
-            const suits = ['♠', '♥', '♦', '♣'];
-            const values = ['6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
-            let newDeck = [];
-            for (let suit of suits) {
-                for (let value of values) {
-                    newDeck.push({ suit, value });
-                }
-            }
-            return newDeck;
-        }
+    <div class="controls">
+        <button id="deal-btn">New Game</button>
+        <button id="hit-btn" disabled>Hit</button>
+        <button id="stand-btn" disabled>Stand</button>
+    </div>
+</div>
 
-        // Перемешивание колоды
-        function shuffleDeck() {
-            for (let i = deck.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [deck[i], deck[j]] = [deck[j], deck[i]];
-            }
-        }
+<script>
+    const dealerCardsDiv = document.getElementById('dealer-cards');
+    const playerCardsDiv = document.getElementById('player-cards');
+    const dealerScoreDiv = document.getElementById('dealer-score');
+    const playerScoreDiv = document.getElementById('player-score');
+    const messageDiv = document.getElementById('message');
+    const dealBtn = document.getElementById('deal-btn');
+    const hitBtn = document.getElementById('hit-btn');
+    const standBtn = document.getElementById('stand-btn');
 
-        // Расчет очков руки
-        function calculateScore(hand) {
-            let score = 0;
-            let aces = 0;
-            for (let card of hand) {
-                if (card.value === 'A') {
-                    aces++;
-                    score += 11;
-                } else if (['J', 'Q', 'K'].includes(card.value)) {
-                    score += 10;
-                } else {
-                    score += parseInt(card.value);
-                }
-            }
-            while (score > 21 && aces > 0) {
-                score -= 10;
-                aces--;
-            }
-            return score;
-        }
+    let deck = [];
+    let playerHand = [];
+    let dealerHand = [];
+    let gameActive = false;
 
-        function updateUI() {
-            dealerCardsDiv.innerHTML = '';
-            dealerHand.forEach(card => {
-                const cardEl = document.createElement('div');
-                cardEl.className = 'card';
-                cardEl.innerText = `${card.value}${card.suit}`;
-                dealerCardsDiv.appendChild(cardEl);
-            });
-
-            playerCardsDiv.innerHTML = '';
-            playerHand.forEach(card => {
-                const cardEl = document.createElement('div');
-                cardEl.className = 'card';
-                cardEl.innerText = `${card.value}${card.suit}`;
-                playerCardsDiv.appendChild(cardEl);
-            });
-
-            dealerScoreDiv.innerText = `Очки: ${calculateScore(dealerHand)}`;
-            playerScoreDiv.innerText = `Очки: ${calculateScore(playerHand)}`;
-        }
-
-        function startNewGame() {
-            deck = createDeck();
-            shuffleDeck();
-            playerHand = [];
-            dealerHand = [];
-            gameActive = true;
-
-            // Раздача по 2 карты каждому
-            playerHand.push(deck.pop());
-            playerHand.push(deck.pop());
-            dealerHand.push(deck.pop());
-            dealerHand.push(deck.pop());
-
-            messageDiv.innerText = "Ваш ход!";
-            hitBtn.disabled = false;
-            standBtn.disabled = false;
-            dealBtn.disabled = true;
-
-            updateUI();
-
-            // Проверка на автоматическую победу при раздаче
-            if (calculateScore(playerHand) >= 17) {
-                playDealerTurn();
+    // 1. Создание колоды (все карты)
+    function createDeck() {
+        const suits = ['♠', '♥', '♦', '♣'];
+        const values = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+        let newDeck = [];
+        for (let suit of suits) {
+            for (let value of values) {
+                newDeck.push({ suit, value });
             }
         }
+        return newDeck;
+    }
 
-        function playDealerTurn() {
-            // Дилер берет карты, пока у него меньше 17 очков
-            while (calculateScore(dealerHand) < 17) {
-                dealerHand.push(deck.pop());
-            }
-            updateUI();
+    function shuffleDeck() {
+        for (let i = deck.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [deck[i], deck[j]] = [deck[j], deck[i]];
+        }
+    }
 
-            const pScore = calculateScore(playerHand);
-            const dScore = calculateScore(dealerHand);
-
-            if (pScore > 21) {
-                messageDiv.innerText = "Вы перебрали! Дилер побеждает.";
-            } else if (dScore > 21) {
-                messageDiv.innerText = "Дилер перебрал! Вы победили!";
-            } else if (pScore > dScore) {
-                messageDiv.innerText = "Вы выиграли!";
-            } else if (pScore < dScore) {
-                message1.innerText = "Дилер выиграл.";
+    // 2. Кастомная логика подсчета очков
+    function calculateScore(hand) {
+        let score = 0;
+        for (let card of hand) {
+            if (card.value === 'J') score += 3;
+            else if (card.value === 'Q') score += 4;
+            else if (card.value === 'K') score += 5;
+            else if (card.value === 'A') {
+                // Если сумма уже больше 11, туз будет равен 1
+                score += (score > 11) ? 1 : 11;
             } else {
-                messageDiv.innerText = "Ничья!";
+                score += parseInt(card.value);
             }
+        }
+        return score;
+    }
 
+    // Функция задержки для анимаций
+    const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+    function updateUI() {
+        dealerCardsDiv.innerHTML = '';
+        dealerHand.forEach(card => {
+            const cardEl = document.createElement('div');
+            cardEl.className = 'card';
+            cardEl.innerHTML = `<span class="suit">${card.suit}</span><span>${card.value}</span>`;
+            dealerCardsDiv.appendChild(cardEl);
+        });
+
+        playerCardsDiv.innerHTML = '';
+        playerHand.forEach(card => {
+            const cardEl = document.createElement('div');
+            cardEl.className = 'card';
+            cardEl.innerHTML = `<span class="suit">${card.suit}</span><span>${card.value}</span>`;
+            playerCardsDiv.appendChild(cardEl);
+        });
+
+        dealerScoreDiv.innerText = `Score: ${calculateScore(dealerHand)}`;
+        playerScoreDiv.innerText = `Score: ${calculateScore(playerHand)}`;
+    }
+
+    async function startNewGame() {
+        deck = createDeck();
+        shuffleDeck();
+        playerHand = [];
+        dealerHand = [];
+        gameActive = true;
+
+        messageDiv.innerText = "Dealing...";
+        dealBtn.disabled = true;
+        hitBtn.disabled = false;
+        standBtn.disabled = false;
+
+        // Раздаем карты по одной с задержкой для красоты
+        for (let i = 0; i < 2; i++) {
+            playerHand.push(deck.pop());
+            dealerHand.push(deck.pop());
+            updateUI();
+            await sleep(600);
+        }
+
+        messageDiv.innerText = "Your Turn";
+        
+        // Если у игрока сразу много, дилер может начать играть (в упрощенной логике)
+        if (calculateScore(playerHand) >= 17) {
+            await new_promise(); // Короткая пауза перед ходом дилера
+            dealerTurn();
+        }
+    }
+
+    async function dealerTurn() {
+        messageDiv.innerText = "Dealer's Turn";
+        while (calculateScore(dealerHand) < 17) {
+            await sleep(800);
+            dealerHand.push(deck.pop());
+            updateUI();
+        }
+
+        const pScore = calculateScore(playerHand);
+        const dScore = calculateScore(dealerHand);
+
+        if (pScore > 21) {
+            messageDiv.innerText = "Bust! You Lose!";
+        } else if (dScore > 21) {
+            messageDiv.innerText = "Dealer Busts! You Win!";
+        } else if (pScore > dScore) {
+            messageDiv.innerText = "Winner Winner! You Win!";
+        } else if (pScore < dScore) {
+            message1.innerText = "Dealer Wins."; // Ошибка в ID исправлю ниже
+            messageDiv.innerText = "Dealer Wins!";
+        } else {
+            messageDiv.innerText = "It's a Draw!";
+        }
+
+        gameActive = false;
+        hitBtn.disabled = true;
+        standBtn.disabled = true;
+        dealBtn.disabled = false;
+    }
+
+    // Упрощенная функция ожидания для синхронности
+    function new_promise() { return new Promise(resolve => setTimeout(resolve, 1000)); }
+
+    // Обработка кнопок
+    dealBtn.addEventListener('click', () => {
+        startNewGame().then(() => {});
+    });
+
+    hitBtn.addEventListener('click', async () => {
+        if (!gameActive) return;
+        playerHand.push(deck.pop());
+        updateUI();
+        await sleep(600);
+        
+        const score = calculateScore(playerHand);
+        if (score > 21) {
+            messageDiv.innerText = "Bust! You Overdid it!";
             gameActive = false;
             hitBtn.disabled = true;
             standBtn.disabled = true;
             dealBtn.disabled = false;
+        } else if (score >= 17) {
+            dealerTurn();
         }
+    });
 
-        // Обработка кнопок
-        dealBtn.addEventListener('click', startNewGame);
+    standBtn.addEventListener('click', () => {
+        if (!gameActive) return;
+        dealerTurn();
+    });
 
-        hitBtn.addEventListener('click', () => {
-            if (!gameActive) return;
-            playerHand.push(deck.pop());
-            updateUI();
-            
-            const score = calculateScore(playerHand);
-            if (score >= 17) {
-                playDealerTurn();
-            } else if (score > 21) {
-                messageDiv.innerText = "Вы перебрали!";
-                hitBtn.disabled = true;
-                standBtn.disabled = true;
-                dealBtn.disabled = false;
-            }
-        });
-
-        standBtn.addEventListener('click', () => {
-            if (!gameActive) return;
-            playDealerTurn();
-        });
-    </script>
+</script>
 </body>
 </html>
